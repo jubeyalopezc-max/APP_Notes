@@ -1,0 +1,10 @@
+{
+  "appId": "com.notespro.app",
+  "appName": "NotesPro",
+  "webDir": "www",
+  "android": {
+    "allowMixedContent": false,
+    "captureInput": false,
+    "webContentsDebuggingEnabled": false
+  }
+}

@@ -1,0 +1,66 @@
+name: Compilar APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Copiar la app web al proyecto Android
+        run: npx cap sync android
+
+      - name: Preparar clave de firma
+        env:
+          KEYSTORE_B64: ${{ secrets.NOTESPRO_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/notespro.jks"
+            echo "NOTESPRO_KEYSTORE=$RUNNER_TEMP/notespro.jks" >> "$GITHUB_ENV"
+          else
+            echo "::error::Falta el secreto NOTESPRO_KEYSTORE_B64"
+            exit 1
+          fi
+
+      - name: Compilar APK
+        working-directory: android
+        env:
+          NOTESPRO_KEYSTORE_PASSWORD: ${{ secrets.NOTESPRO_KEYSTORE_PASSWORD }}
+          NOTESPRO_KEY_PASSWORD: ${{ secrets.NOTESPRO_KEYSTORE_PASSWORD }}
+          NOTESPRO_KEY_ALIAS: notespro
+          NOTESPRO_VERSION_CODE: ${{ github.run_number }}
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon
+          cp app/build/outputs/apk/release/app-release.apk "$GITHUB_WORKSPACE/NotesPro-v1.0.${{ github.run_number }}.apk"
+
+      - name: Publicar el APK
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: NotesPro v1.0.${{ github.run_number }}
+          body: |
+            Descarga el archivo **NotesPro-v1.0.${{ github.run_number }}.apk** desde la tablet e instálalo.
+            Cambios: ${{ github.event.head_commit.message }}
+          files: NotesPro-v1.0.${{ github.run_number }}.apk
+          make_latest: true

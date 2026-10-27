@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <title>NotesPro</title>
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></symbol>
+      <symbol id="i-dots" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.8" fill="currentColor"/><circle cx="12" cy="12" r="1.8" fill="currentColor"/><circle cx="19" cy="12" r="1.8" fill="currentColor"/></symbol>
+      <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6" fill="none" stroke="currentColor" stroke-width="2"/><path d="M15 15l5 5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></symbol>
+      <symbol id="i-undo" viewBox="0 0 24 24"><path d="M9 7L4.5 11.5 9 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 11.5h9.5a5 5 0 010 10H12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+      <symbol id="i-redo" viewBox="0 0 24 24"><g transform="matrix(-1 0 0 1 24 0)"><path d="M9 7L4.5 11.5 9 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 11.5h9.5a5 5 0 010 10H12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></g></symbol>
+      <symbol id="i-pen" viewBox="0 0 24 24"><path d="M4 20l1.2-4.6L15.8 4.8a2 2 0 012.8 0l.6.6a2 2 0 010 2.8L8.6 18.8z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/><path d="M13.8 6.8l3.4 3.4" stroke="currentColor" stroke-width="1.9"/></symbol>
+      <symbol id="i-magic" viewBox="0 0 24 24"><path d="M4 20L14.5 9.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><path d="M14.5 9.5l2-2" stroke="var(--marker)" stroke-width="3.4" stroke-linecap="round"/><path d="M18 2.5v3M16.5 4h3M21 9v2.4M19.8 10.2h2.4M11 3v2M10 4h2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+      <symbol id="i-hl" viewBox="0 0 24 24"><path d="M6 14l7.5-9.5 5 4L11 18H7z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/><path d="M4 21h9" stroke="var(--marker)" stroke-width="3.4" stroke-linecap="round"/></symbol>
+      <symbol id="i-eraser" viewBox="0 0 24 24"><path d="M8.5 19.5L3.8 14.8a1.8 1.8 0 010-2.6l8.4-8.4a1.8 1.8 0 012.6 0l5.4 5.4a1.8 1.8 0 010 2.6L12.5 19.5z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/><path d="M8 9l7 7M8.5 19.5H20" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></symbol>
+      <symbol id="i-lasso" viewBox="0 0 24 24"><ellipse cx="12.5" cy="9" rx="8" ry="5.5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-dasharray="3 2.6"/><path d="M7 13.5c-1.5 1.5-1 4 1.5 4.5S9 21 7.5 21.5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></symbol>
+      <symbol id="i-text" viewBox="0 0 24 24"><path d="M5 6.5V5h14v1.5M12 5v14M9 19h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-image" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.9"/><circle cx="9" cy="10" r="1.8" fill="currentColor"/><path d="M4 17l5-4.5 4 3.5 3-2.5 4.5 4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/></symbol>
+      <symbol id="i-hand" viewBox="0 0 24 24"><path d="M8 12V5.5a1.5 1.5 0 013 0V11m0-6.5a1.5 1.5 0 013 0V11m0-5a1.5 1.5 0 013 0v7.5c0 4-2.5 7-6.5 7-2.5 0-4-1-5.5-3L5 13.5a1.5 1.5 0 012.3-1.9L8 12.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-page" viewBox="0 0 24 24"><path d="M6 3.5h8l4 4v13H6z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/><path d="M12 11v6M9 14h6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></symbol>
+    </defs>
+  </svg>
+
+  <!-- Inicio: materias y notas -->
+  <main id="home">
+    <nav class="rail" aria-label="Materias">
+      <div class="brand">NotesPro</div>
+      <button class="spine all" data-subject="all"><span class="spine-name">Todas las notas</span><span class="count" id="count-all"></span></button>
+      <div id="subject-list" class="subject-list"></div>
+      <button class="add-subject" id="add-subject"><svg><use href="#i-plus"/></svg>Nueva materia</button>
+    </nav>
+    <section class="library">
+      <header class="lib-head">
+        <div class="lib-title-row">
+          <h1 id="lib-title">Todas las notas</h1>
+          <button class="icon-btn" id="subject-menu" aria-label="Opciones de la materia" hidden><svg><use href="#i-dots"/></svg></button>
+        </div>
+        <div class="lib-tools">
+          <label class="search"><svg><use href="#i-search"/></svg><input id="search" type="search" placeholder="Buscar notas" autocomplete="off"></label>
+          <button class="primary" id="new-note"><svg><use href="#i-plus"/></svg>Nueva nota</button>
+        </div>
+      </header>
+      <div id="notes" class="notes"></div>
+    </section>
+  </main>
+
+  <!-- Editor -->
+  <section id="editor" hidden>
+    <header class="ed-top">
+      <button class="icon-btn" id="ed-back" aria-label="Volver a las notas"><svg><use href="#i-back"/></svg></button>
+      <button class="ed-title" id="ed-title"></button>
+      <div class="ed-actions">
+        <button class="icon-btn" id="ed-undo" aria-label="Deshacer"><svg><use href="#i-undo"/></svg></button>
+        <button class="icon-btn" id="ed-redo" aria-label="Rehacer"><svg><use href="#i-redo"/></svg></button>
+        <button class="chip-btn" id="ed-finger" aria-pressed="true"><svg><use href="#i-hand"/></svg><span class="lbl">Dedo dibuja</span></button>
+        <button class="icon-btn" id="ed-more" aria-label="Más opciones"><svg><use href="#i-dots"/></svg></button>
+      </div>
+    </header>
+    <div class="dock" role="toolbar" aria-label="Herramientas">
+      <div class="tools">
+        <button data-tool="pen" aria-label="Lápiz" title="Lápiz (mantén quieto al final para hacer figura)"><svg><use href="#i-pen"/></svg></button>
+        <button data-tool="magic" aria-label="Lápiz mágico" title="Lápiz mágico: convierte en figura"><svg><use href="#i-magic"/></svg></button>
+        <button data-tool="hl" aria-label="Resaltador" title="Resaltador"><svg><use href="#i-hl"/></svg></button>
+        <button data-tool="eraser" aria-label="Borrador" title="Borrador"><svg><use href="#i-eraser"/></svg></button>
+        <button data-tool="select" aria-label="Seleccionar" title="Seleccionar y mover"><svg><use href="#i-lasso"/></svg></button>
+        <button data-tool="text" aria-label="Texto" title="Escribir con teclado"><svg><use href="#i-text"/></svg></button>
+        <button data-tool="image" aria-label="Insertar imagen" title="Insertar imagen"><svg><use href="#i-image"/></svg></button>
+      </div>
+      <div class="tool-options" id="tool-options">
+        <div class="swatches" id="swatches"></div>
+        <div class="sizes" id="sizes"></div>
+      </div>
+    </div>
+    <div class="stage" id="stage">
+      <canvas id="cv-main"></canvas>
+      <canvas id="cv-live"></canvas>
+      <div class="sel-bar" id="sel-bar" hidden>
+        <button data-act="dup">Duplicar</button>
+        <button data-act="del" class="danger">Eliminar</button>
+      </div>
+      <button class="add-page" id="add-page"><svg><use href="#i-page"/></svg>Página</button>
+    </div>
+    <input type="file" id="img-input" accept="image/*" hidden>
+  </section>
+
+  <dialog id="dlg"><form method="dialog" id="dlg-form"></form></dialog>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
