@@ -208,12 +208,16 @@ async function newNote() {
   const r = await dialog(`<h2>Nueva nota</h2>
     <label class="field">Título<input type="text" name="title" maxlength="80" placeholder="Clase del ${new Date().toLocaleDateString('es-CO', { day: 'numeric', month: 'long' })}"></label>
     <label class="field">Materia<select name="subjectId">${subjectOptions}</select></label>
-    <div class="field">Hoja<div class="paper-pick">${Object.entries(PAPERS).map(([k, v], i) =>
+    <div class="field">Formato<div class="layout-pick">
+      <label><input type="radio" name="layout" value="pages" checked><b>Hojas</b><small>Páginas una debajo de otra, como un cuaderno</small></label>
+      <label><input type="radio" name="layout" value="canvas"><b>Lienzo libre</b><small>Sin bordes: escribe hacia cualquier lado</small></label>
+    </div></div>
+    <div class="field">Fondo<div class="paper-pick">${Object.entries(PAPERS).map(([k, v], i) =>
       `<label><input type="radio" name="paper" value="${k}" ${i === 0 ? 'checked' : ''}><span class="paper-swatch ${k}"></span>${v}</label>`).join('')}</div></div>
     ${buttons('Crear nota')}`);
   if (!r) return;
   const title = r.title.trim() || `Clase del ${new Date().toLocaleDateString('es-CO', { day: 'numeric', month: 'long' })}`;
-  const n = { id: uid(), title, subjectId: r.subjectId || null, paper: r.paper || 'lines', createdAt: Date.now(), updatedAt: Date.now(), thumb: null };
+  const n = { id: uid(), title, subjectId: r.subjectId || null, paper: r.paper || 'lines', layout: r.layout || 'pages', createdAt: Date.now(), updatedAt: Date.now(), thumb: null };
   await db.put('notes', n);
   await db.put('contents', { id: n.id, items: [], pages: 1 });
   state.notes.push(n);
@@ -288,12 +292,13 @@ async function closeEditor() {
 
 async function editorMore() {
   const act = await dialog(`<h2>Opciones de la nota</h2>
-    <div class="field">Hoja<div class="paper-pick">${Object.entries(PAPERS).map(([k, v]) =>
+    <div class="field">Fondo<div class="paper-pick">${Object.entries(PAPERS).map(([k, v]) =>
       `<label><input type="radio" name="paper" value="${k}" ${editor.paper === k ? 'checked' : ''}><span class="paper-swatch ${k}"></span>${v}</label>`).join('')}</div></div>
-    <div class="menu-list"><button value="page">Agregar página al final</button><button value="rename">Cambiar título</button></div>
-    <div class="dlg-actions"><button value="cancel" class="ghost">Cerrar</button><button value="ok" class="primary">Aplicar hoja</button></div>`);
+    <div class="menu-list"><button value="all">Ver toda la nota</button>${editor.layout === 'pages' ? '<button value="page">Agregar página al final</button>' : ''}<button value="rename">Cambiar título</button></div>
+    <div class="dlg-actions"><button value="cancel" class="ghost">Cerrar</button><button value="ok" class="primary">Aplicar fondo</button></div>`);
   if (!act) return;
-  if (act.action === 'page') editor.addPage();
+  if (act.action === 'all') editor.showAll();
+  else if (act.action === 'page') editor.addPage();
   else if (act.action === 'rename') renameNote(openMeta);
   else if (act.paper && act.paper !== editor.paper) editor.setPaper(act.paper);
 }

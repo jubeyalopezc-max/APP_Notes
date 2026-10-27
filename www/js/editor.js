@@ -1,5 +1,5 @@
 import {
-  PAGE_W, PAGE_H, PAGE_GAP, pageTop, PAPERS, drawPaper, drawItem, bounds, hits, translated,
+  PAGE_W, PAGE_H, PAGE_GAP, pageTop, PAPERS, drawPaper, drawPaperArea, drawItem, bounds, hits, translated,
 } from './render.js';
 import { recognize, describeShape } from './shapes.js';
 import { uid } from './db.js';
@@ -25,6 +25,7 @@ function loadSettings() {
     text: { color: PEN_COLORS[0], size: 1 },
     fingerDraw: true,
     fingerDrawSetByUser: false,
+    showMap: window.innerWidth > 700,
   };
   try { return { ...def, ...JSON.parse(localStorage.getItem('np-settings') || '{}') }; }
   catch { return def; }
@@ -45,6 +46,9 @@ export function createEditor({ onSave, onClose, toast }) {
   let items = [];
   let pages = 1;
   let paper = 'lines';
+  let layout = 'pages';     // 'pages' (hojas) o 'canvas' (lienzo libre)
+  let prevView = null;      // vista antes de "Ver todo", para volver
+  let anim = null;
   let undoStack = [], redoStack = [];
   let view = { s: 1, ox: 0, oy: 0 };
   let W = 0, H = 0, dpr = 1;
@@ -72,18 +76,186 @@ export function createEditor({ onSave, onClose, toast }) {
 
   const docH = () => pages * PAGE_H + (pages - 1) * PAGE_GAP;
 
+  function contentBounds() {
+    if (!items.length) return null;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const it of items) {
+      const b = bounds(it);
+      if (b.x0 < x0) x0 = b.x0; if (b.y0 < y0) y0 = b.y0; if (b.x1 > x1) x1 = b.x1; if (b.y1 > y1) y1 = b.y1;
+    }
+    return { x0, y0, x1, y1 };
+  }
+
+  // Todo lo que hay en la nota: las hojas (si hay) más lo dibujado.
+  function docBounds() {
+    const c = contentBounds();
+    if (layout === 'pages') {
+      const b = { x0: 0, y0: 0, x1: PAGE_W, y1: docH() };
+      if (c) { b.x0 = Math.min(b.x0, c.x0); b.y0 = Math.min(b.y0, c.y0); b.x1 = Math.max(b.x1, c.x1); b.y1 = Math.max(b.y1, c.y1); }
+      return b;
+    }
+    return c || { x0: 0, y0: 0, x1: PAGE_W, y1: PAGE_W * 0.7 };
+  }
+
+  // Escala para ver todo con margen.
+  function fitScale(b) {
+    return Math.min((W - 48) / Math.max(1, b.x1 - b.x0), (H - 48) / Math.max(1, b.y1 - b.y0));
+  }
+  // El zoom mínimo siempre permite ver la nota completa, y un poco más.
+  const minScale = () => Math.max(0.02, Math.min(0.25, fitScale(docBounds()) * 0.8));
+
   function fitWidth() {
+    if (layout === 'canvas') {
+      const c = contentBounds();
+      view.s = 1;
+      view.ox = c ? 24 - c.x0 : 24;
+      view.oy = c ? 24 - c.y0 : 24;
+      return;
+    }
     view.s = Math.min((W - 32) / PAGE_W, 1.4);
     view.ox = (W - PAGE_W * view.s) / 2;
     view.oy = 20;
   }
 
+  function viewForAll() {
+    const b = docBounds();
+    const s = Math.min(fitScale(b), layout === 'canvas' ? 1.5 : 1.4);
+    return { s, ox: (W - (b.x1 - b.x0) * s) / 2 - b.x0 * s, oy: (H - (b.y1 - b.y0) * s) / 2 - b.y0 * s };
+  }
+
   function clampView() {
     const s = view.s;
+    if (layout === 'canvas') {
+      // Lienzo libre: el centro de la pantalla puede ir hasta bien lejos de lo dibujado.
+      const b = docBounds();
+      const m = Math.max(1500, W / s, H / s);
+      view.ox = Math.min(W / 2 - (b.x0 - m) * s, Math.max(W / 2 - (b.x1 + m) * s, view.ox));
+      view.oy = Math.min(H / 2 - (b.y0 - m) * s, Math.max(H / 2 - (b.y1 + m) * s, view.oy));
+      return;
+    }
     if (PAGE_W * s <= W) view.ox = (W - PAGE_W * s) / 2;
     else view.ox = Math.min(40, Math.max(W - PAGE_W * s - 40, view.ox));
-    const maxOy = 80, minOy = Math.min(maxOy, H - docH() * s - 140);
-    view.oy = Math.min(maxOy, Math.max(minOy, view.oy));
+    const dh = docH() * s;
+    if (dh < H - 160) view.oy = (H - dh) / 2;
+    else {
+      const maxOy = 80, minOy = Math.min(maxOy, H - dh - 140);
+      view.oy = Math.min(maxOy, Math.max(minOy, view.oy));
+    }
+  }
+
+  function animateTo(target) {
+    cancelAnimationFrame(anim);
+    const from = { ...view };
+    const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const t0 = performance.now(), dur = reduce ? 0 : 280;
+    const step = now => {
+      const t = dur ? Math.min(1, (now - t0) / dur) : 1;
+      const e = 1 - Math.pow(1 - t, 3);
+      // Interpolación en escala logarítmica para que el zoom se sienta parejo.
+      const s = Math.exp(Math.log(from.s) + (Math.log(target.s) - Math.log(from.s)) * e);
+      const fx = (W / 2 - from.ox) / from.s, fy = (H / 2 - from.oy) / from.s;
+      const tx = (W / 2 - target.ox) / target.s, ty = (H / 2 - target.oy) / target.s;
+      const cx = fx + (tx - fx) * e, cy = fy + (ty - fy) * e;
+      view = { s, ox: W / 2 - cx * s, oy: H / 2 - cy * s };
+      if (editingText) editingText.place();
+      paint(); paintLive();
+      if (t < 1) anim = requestAnimationFrame(step);
+      else { view = { ...target }; clampView(); redraw(); }
+    };
+    anim = requestAnimationFrame(step);
+  }
+
+  // ---------- Vista de todas las páginas ----------
+  const ov = $('#overview'), ovGrid = $('#ov-grid');
+  function openOverview() {
+    finishText();
+    setSelection([]);
+    ov.hidden = false;
+    renderOverview();
+    updateZoomUI();
+  }
+  function closeOverview() { ov.hidden = true; updateZoomUI(); redraw(); }
+  function renderOverview() {
+    const cur = currentPage();
+    $('#ov-sub').textContent = `${pages} página${pages === 1 ? '' : 's'}. Toca una para ir a ella.`;
+    // Columnas: las más grandes posibles que dejen ver todas las páginas sin desplazarse.
+    const gw = ovGrid.clientWidth - 40, gh = ovGrid.clientHeight - 110;
+    const n = pages + 1;
+    let best = 130;
+    for (let cols = 1; cols <= n; cols++) {
+      const rows = Math.ceil(n / cols);
+      const w = Math.min((gw - (cols - 1) * 18) / cols, ((gh - (rows - 1) * 22) / rows - 28) * PAGE_W / PAGE_H);
+      if (w > best) best = w;
+    }
+    const tw = Math.max(130, Math.min(360, best));
+    ovGrid.style.gridTemplateColumns = `repeat(auto-fill, ${Math.floor(tw)}px)`;
+    ovGrid.innerHTML = '';
+    const pr = window.devicePixelRatio || 1;
+    let pending = false;
+    for (let i = 0; i < pages; i++) {
+      const b = document.createElement('button');
+      b.className = 'ov-page';
+      b.setAttribute('aria-current', String(i + 1 === cur));
+      b.setAttribute('aria-label', `Ir a la página ${i + 1}`);
+      const c = document.createElement('canvas');
+      c.width = Math.round(tw * pr); c.height = Math.round(tw * pr * PAGE_H / PAGE_W);
+      const g = c.getContext('2d');
+      const k = c.width / PAGE_W, top = pageTop(i);
+      g.scale(k, k); g.translate(0, -top);
+      drawPaper(g, top, paper, false);
+      g.beginPath(); g.rect(0, top, PAGE_W, PAGE_H); g.clip();
+      for (const it of items) {
+        const bb = bounds(it);
+        if (bb.y1 < top || bb.y0 > top + PAGE_H) continue;
+        drawItem(g, it, () => { if (!pending) { pending = true; setTimeout(() => !ov.hidden && renderOverview(), 50); } });
+      }
+      const lbl = document.createElement('span');
+      lbl.textContent = i + 1;
+      b.append(c, lbl);
+      b.onclick = () => goToPage(i);
+      ovGrid.appendChild(b);
+    }
+    const add = document.createElement('button');
+    add.className = 'ov-add';
+    add.innerHTML = '<svg><use href="#i-plus"/></svg>Agregar página';
+    add.onclick = () => { addPage(); closeOverview(); };
+    ovGrid.appendChild(add);
+  }
+  function goToPage(i) {
+    closeOverview();
+    const s = Math.min((W - 32) / PAGE_W, 1.4);
+    view = { s, ox: (W - PAGE_W * s) / 2, oy: 16 - pageTop(i) * s };
+    clampView();
+    redraw();
+  }
+  $('#ov-close').onclick = closeOverview;
+
+  function showAll() {
+    if (layout === 'pages') { ov.hidden ? openOverview() : closeOverview(); return; }
+    if (prevView) { const v = prevView; prevView = null; updateZoomUI(); animateTo(v); return; }
+    prevView = { ...view };
+    updateZoomUI();
+    animateTo(viewForAll());
+  }
+
+  function zoomButton(factor) {
+    prevView = null;
+    const ns = Math.min(6, Math.max(minScale(), view.s * factor));
+    const k = ns / view.s;
+    animateTo({ s: ns, ox: W / 2 - (W / 2 - view.ox) * k, oy: H / 2 - (H / 2 - view.oy) * k });
+  }
+
+  function resetZoom() {
+    prevView = null;
+    if (layout === 'pages') {
+      // Ajusta la hoja al ancho conservando la zona que se está viendo.
+      const cy = (H / 2 - view.oy) / view.s;
+      const s = Math.min((W - 32) / PAGE_W, 1.4);
+      animateTo({ s, ox: (W - PAGE_W * s) / 2, oy: H / 2 - cy * s });
+    } else {
+      const cx = (W / 2 - view.ox) / view.s, cy = (H / 2 - view.oy) / view.s;
+      animateTo({ s: 1, ox: W / 2 - cx, oy: H / 2 - cy });
+    }
   }
 
   function toDoc(cx, cy) {
@@ -93,7 +265,7 @@ export function createEditor({ onSave, onClose, toast }) {
   function toScreen(x, y) { return { x: x * view.s + view.ox, y: y * view.s + view.oy }; }
 
   function zoomAt(sx, sy, factor) {
-    const ns = Math.min(6, Math.max(0.25, view.s * factor));
+    const ns = Math.min(6, Math.max(minScale(), view.s * factor));
     const k = ns / view.s;
     view.ox = sx - (sx - view.ox) * k;
     view.oy = sy - (sy - view.oy) * k;
@@ -117,7 +289,8 @@ export function createEditor({ onSave, onClose, toast }) {
     const { s, ox, oy } = view;
     ctx.setTransform(dpr * s, 0, 0, dpr * s, dpr * ox, dpr * oy);
     const vy0 = -oy / s, vy1 = (H - oy) / s, vx0 = -ox / s, vx1 = (W - ox) / s;
-    for (let i = 0; i < pages; i++) {
+    if (layout === 'canvas') drawPaperArea(ctx, vx0, vy0, vx1, vy1, paper, s);
+    for (let i = 0; layout === 'pages' && i < pages; i++) {
       const t = pageTop(i);
       if (t > vy1 || t + PAGE_H < vy0) continue;
       ctx.fillStyle = 'rgba(20,35,60,0.10)';
@@ -130,7 +303,103 @@ export function createEditor({ onSave, onClose, toast }) {
       if (b.y1 < vy0 || b.y0 > vy1 || b.x1 < vx0 || b.x0 > vx1) continue;
       drawItem(ctx, it, redraw);
     }
+    updateZoomUI();
+    paintMinimap();
   }
+
+  // ---------- Zoom y mapa ----------
+  const zPct = $('#z-pct'), zAll = $('#z-all'), zMap = $('#z-map');
+  const mm = $('#minimap'), mmCv = $('#mm-cv'), mmLabel = $('#mm-label');
+  const mmCtx = mmCv.getContext('2d');
+  const mmBase = document.createElement('canvas');
+  let mmStale = true, mmLast = 0, mmTimer = null, mmMap = null, mmKey = '';
+
+  function updateZoomUI() {
+    zPct.textContent = Math.round(view.s * 100) + '%';
+    const on = layout === 'pages' ? !ov.hidden : !!prevView;
+    zAll.querySelector('.lbl').textContent = on ? 'Volver' : 'Ver todo';
+    zAll.setAttribute('aria-pressed', String(on));
+    zMap.setAttribute('aria-pressed', String(!!S.showMap));
+  }
+
+  function currentPage() {
+    const cy = (H / 2 - view.oy) / view.s;
+    return Math.max(1, Math.min(pages, Math.floor(cy / (PAGE_H + PAGE_GAP)) + 1));
+  }
+
+  function paintMinimap() {
+    mm.hidden = !S.showMap || !note || !ov.hidden;
+    if (mm.hidden) return;
+    const b = { ...docBounds() };
+    if (layout === 'canvas') {
+      // En el lienzo libre el mapa incluye también la zona que se está viendo.
+      b.x0 = Math.min(b.x0, -view.ox / view.s); b.y0 = Math.min(b.y0, -view.oy / view.s);
+      b.x1 = Math.max(b.x1, (W - view.ox) / view.s); b.y1 = Math.max(b.y1, (H - view.oy) / view.s);
+      const key = [b.x0, b.y0, b.x1, b.y1].map(Math.round).join();
+      if (key !== mmKey) { mmKey = key; mmStale = true; mmLast = 0; }
+    }
+    const bw = b.x1 - b.x0, bh = b.y1 - b.y0;
+    const maxW = W < 600 ? 120 : 176, maxH = Math.min(260, H * 0.42);
+    const k = Math.min(maxW / bw, maxH / bh);
+    const mw = Math.max(40, Math.round(bw * k)), mh = Math.max(40, Math.round(bh * k));
+    const pr = window.devicePixelRatio || 1;
+    if (mmCv.width !== Math.round(mw * pr) || mmCv.height !== Math.round(mh * pr)) {
+      mmCv.width = Math.round(mw * pr); mmCv.height = Math.round(mh * pr);
+      mmCv.style.width = mw + 'px'; mmCv.style.height = mh + 'px';
+      mmStale = true;
+    }
+    mmMap = { k, x0: b.x0, y0: b.y0, mw, mh };
+    // El contenido del mapa se vuelve a dibujar como máximo 3 veces por segundo.
+    const now = performance.now();
+    if (mmStale && now - mmLast > 300) {
+      mmStale = false; mmLast = now;
+      mmBase.width = mmCv.width; mmBase.height = mmCv.height;
+      const g = mmBase.getContext('2d');
+      g.setTransform(k * pr, 0, 0, k * pr, -b.x0 * k * pr, -b.y0 * k * pr);
+      if (layout === 'canvas') drawPaperArea(g, b.x0, b.y0, b.x1, b.y1, 'blank', k);
+      else for (let i = 0; i < pages; i++) { g.fillStyle = '#fff'; g.fillRect(0, pageTop(i), PAGE_W, PAGE_H); }
+      for (const it of items) drawItem(g, it, () => { mmStale = true; redraw(); });
+    } else if (mmStale) {
+      clearTimeout(mmTimer);
+      mmTimer = setTimeout(redraw, 320);
+    }
+    mmCtx.setTransform(1, 0, 0, 1, 0, 0);
+    mmCtx.clearRect(0, 0, mmCv.width, mmCv.height);
+    mmCtx.drawImage(mmBase, 0, 0);
+    // Rectángulo de lo que se ve en pantalla.
+    mmCtx.setTransform(pr, 0, 0, pr, 0, 0);
+    const vx = (-view.ox / view.s - b.x0) * k, vy = (-view.oy / view.s - b.y0) * k;
+    const vw = W / view.s * k, vh = H / view.s * k;
+    mmCtx.fillStyle = 'rgba(45,85,224,0.12)';
+    mmCtx.strokeStyle = '#2D55E0';
+    mmCtx.lineWidth = 2;
+    mmCtx.fillRect(vx, vy, vw, vh);
+    mmCtx.strokeRect(vx + 1, vy + 1, Math.max(4, vw - 2), Math.max(4, vh - 2));
+    mmLabel.textContent = layout === 'pages' ? `Página ${currentPage()} de ${pages}` : 'Lienzo completo';
+  }
+
+  // Tocar o arrastrar en el mapa lleva la vista a ese punto.
+  let mmDrag = false;
+  function mmMove(e) {
+    if (!mmMap) return;
+    const r = mmCv.getBoundingClientRect();
+    const x = (e.clientX - r.left) / mmMap.k + mmMap.x0, y = (e.clientY - r.top) / mmMap.k + mmMap.y0;
+    prevView = null;
+    view.ox = W / 2 - x * view.s; view.oy = H / 2 - y * view.s;
+    clampView();
+    if (editingText) editingText.place();
+    redraw();
+  }
+  mmCv.addEventListener('pointerdown', e => { mmDrag = true; try { mmCv.setPointerCapture(e.pointerId); } catch {} mmMove(e); });
+  mmCv.addEventListener('pointermove', e => { if (mmDrag) mmMove(e); });
+  mmCv.addEventListener('pointerup', () => { mmDrag = false; });
+  mmCv.addEventListener('pointercancel', () => { mmDrag = false; });
+
+  $('#z-in').onclick = () => zoomButton(1.25);
+  $('#z-out').onclick = () => zoomButton(0.8);
+  zPct.onclick = resetZoom;
+  zAll.onclick = showAll;
+  zMap.onclick = () => { S.showMap = !S.showMap; saveSettings(S); mmStale = true; redraw(); };
 
   function paintLive() {
     lctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -214,6 +483,7 @@ export function createEditor({ onSave, onClose, toast }) {
 
   function changed() {
     dirty = true;
+    mmStale = true;
     redraw();
     clearTimeout(saveTimer);
     saveTimer = setTimeout(save, 900);
@@ -231,6 +501,20 @@ export function createEditor({ onSave, onClose, toast }) {
     const k = 240 / PAGE_W;
     c.width = 240; c.height = Math.round(PAGE_H * k);
     const g = c.getContext('2d');
+    if (layout === 'canvas') {
+      // Miniatura del lienzo: todo lo dibujado, centrado.
+      g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
+      const b = contentBounds();
+      if (b) {
+        const pad = 30, bw = b.x1 - b.x0 + pad * 2, bh = b.y1 - b.y0 + pad * 2;
+        const kk = Math.min(c.width / bw, c.height / bh, 0.5);
+        g.translate((c.width - bw * kk) / 2, (c.height - bh * kk) / 2);
+        g.scale(kk, kk);
+        g.translate(pad - b.x0, pad - b.y0);
+        for (const it of items) drawItem(g, it, () => {});
+      }
+      return c.toDataURL('image/jpeg', 0.7);
+    }
     g.scale(k, k);
     drawPaper(g, 0, paper, false);
     for (const it of items) { const b = bounds(it); if (b.y0 < PAGE_H) drawItem(g, it, () => {}); }
@@ -295,7 +579,7 @@ export function createEditor({ onSave, onClose, toast }) {
   function startText(x, y, existing) {
     finishText();
     const conf = S.text;
-    const item = existing || { id: uid(), type: 'text', x, y: y - SIZES.text[conf.size] * 0.65, w: Math.min(520, PAGE_W - x - 30), text: '', size: SIZES.text[conf.size], color: conf.color };
+    const item = existing || { id: uid(), type: 'text', x, y: y - SIZES.text[conf.size] * 0.65, w: layout === 'canvas' ? 520 : Math.min(520, PAGE_W - x - 30), text: '', size: SIZES.text[conf.size], color: conf.color };
     if (item.w < 120) item.w = 120;
     const el = document.createElement('textarea');
     el.className = 'text-edit';
@@ -347,7 +631,7 @@ export function createEditor({ onSave, onClose, toast }) {
       const maxW = PAGE_W * 0.7;
       const k = Math.min(1, maxW / w, (PAGE_H * 0.6) / h);
       const iw = w * k, ih = h * k;
-      const it = { id: uid(), type: 'image', src, x: Math.max(20, center.x - iw / 2), y: center.y - ih / 2, w: iw, h: ih };
+      const it = { id: uid(), type: 'image', src, x: layout === 'canvas' ? center.x - iw / 2 : Math.max(20, center.x - iw / 2), y: center.y - ih / 2, w: iw, h: ih };
       pushUndo();
       items.push(it);
       changed();
@@ -592,6 +876,7 @@ export function createEditor({ onSave, onClose, toast }) {
     const r = stage.getBoundingClientRect();
     const dx = g.cx - action.cx, dy = g.cy - action.cy;
     action.travel += Math.abs(dx) + Math.abs(dy);
+    if (action.travel > 18) prevView = null;
     view.ox += dx; view.oy += dy;
     if (g.n === 2 && action.dist > 0) zoomAt(g.cx - r.left, g.cy - r.top, g.dist / action.dist);
     clampView();
@@ -617,6 +902,7 @@ export function createEditor({ onSave, onClose, toast }) {
   cvLive.addEventListener('contextmenu', e => e.preventDefault());
   stage.addEventListener('wheel', e => {
     e.preventDefault();
+    prevView = null;
     const r = stage.getBoundingClientRect();
     if (e.ctrlKey) zoomAt(e.clientX - r.left, e.clientY - r.top, Math.exp(-e.deltaY * 0.01));
     else { view.oy -= e.deltaY; view.ox -= e.deltaX; clampView(); }
@@ -735,6 +1021,9 @@ export function createEditor({ onSave, onClose, toast }) {
     const k = e.key.toLowerCase();
     if ((e.ctrlKey || e.metaKey) && k === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); }
     else if ((e.ctrlKey || e.metaKey) && k === 'y') { e.preventDefault(); redo(); }
+    else if ((e.ctrlKey || e.metaKey) && k === '0') { e.preventDefault(); showAll(); }
+    else if ((e.ctrlKey || e.metaKey) && (k === '+' || k === '=')) { e.preventDefault(); zoomButton(1.25); }
+    else if ((e.ctrlKey || e.metaKey) && k === '-') { e.preventDefault(); zoomButton(0.8); }
     else if ((k === 'delete' || k === 'backspace') && selected.length) selBar.querySelector('[data-act=del]').click();
   });
 
@@ -745,6 +1034,9 @@ export function createEditor({ onSave, onClose, toast }) {
       items = (content && content.items) || [];
       pages = (content && content.pages) || 1;
       paper = meta.paper || 'lines';
+      layout = meta.layout || 'pages';
+      prevView = null; mmStale = true; ov.hidden = true;
+      $('#add-page').hidden = layout !== 'pages';
       undoStack = []; redoStack = []; selected = []; dirty = false; action = null;
       updateUndoButtons();
       updateFingerButton();
@@ -760,10 +1052,12 @@ export function createEditor({ onSave, onClose, toast }) {
     },
     setPaper(p) { paper = p; note.paper = p; dirty = true; changed(); },
     get paper() { return paper; },
+    get layout() { return layout; },
+    showAll,
     addPage,
     save,
     get isOpen() { return !!note; },
-    deselect() { if (selected.length) { setSelection([]); return true; } if (editingText) { finishText(); return true; } return false; },
+    deselect() { if (!ov.hidden) { closeOverview(); redraw(); return true; } if (selected.length) { setSelection([]); return true; } if (editingText) { finishText(); return true; } return false; },
   };
 }
 

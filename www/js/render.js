@@ -43,6 +43,28 @@ export function drawPaper(ctx, top, paper, dark) {
   }
 }
 
+// Fondo del lienzo libre: el patrón se repite en toda el área visible.
+export function drawPaperArea(ctx, x0, y0, x1, y1, paper, s) {
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
+  const step = paper === 'lines' ? 36 : 32;
+  if (paper === 'blank' || step * s < 7) return; // muy lejos: el patrón solo estorba
+  const line = 'rgba(70,110,180,0.17)';
+  ctx.lineWidth = 1.2 / Math.max(s, 0.6);
+  const fx = Math.floor(x0 / step) * step, fy = Math.floor(y0 / step) * step;
+  if (paper === 'lines' || paper === 'grid') {
+    ctx.strokeStyle = line;
+    ctx.beginPath();
+    for (let y = fy; y < y1; y += step) { ctx.moveTo(x0, y); ctx.lineTo(x1, y); }
+    if (paper === 'grid') for (let x = fx; x < x1; x += step) { ctx.moveTo(x, y0); ctx.lineTo(x, y1); }
+    ctx.stroke();
+  } else if (paper === 'dots') {
+    ctx.fillStyle = 'rgba(70,100,150,0.38)';
+    const r = 1.4 / Math.max(s, 0.6);
+    for (let x = fx; x < x1; x += step) for (let y = fy; y < y1; y += step) ctx.fillRect(x - r, y - r, 2 * r, 2 * r);
+  }
+}
+
 // Contorno relleno de un trazo con grosor variable según la presión.
 function strokeOutline(it) {
   const P = it.pts;

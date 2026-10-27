@@ -24,6 +24,9 @@
       <symbol id="i-text" viewBox="0 0 24 24"><path d="M5 6.5V5h14v1.5M12 5v14M9 19h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
       <symbol id="i-image" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.9"/><circle cx="9" cy="10" r="1.8" fill="currentColor"/><path d="M4 17l5-4.5 4 3.5 3-2.5 4.5 4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/></symbol>
       <symbol id="i-hand" viewBox="0 0 24 24"><path d="M8 12V5.5a1.5 1.5 0 013 0V11m0-6.5a1.5 1.5 0 013 0V11m0-5a1.5 1.5 0 013 0v7.5c0 4-2.5 7-6.5 7-2.5 0-4-1-5.5-3L5 13.5a1.5 1.5 0 012.3-1.9L8 12.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-fit" viewBox="0 0 24 24"><path d="M4 9V5.5A1.5 1.5 0 015.5 4H9M15 4h3.5A1.5 1.5 0 0120 5.5V9M20 15v3.5a1.5 1.5 0 01-1.5 1.5H15M9 20H5.5A1.5 1.5 0 014 18.5V15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><rect x="8.5" y="8.5" width="7" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+      <symbol id="i-map" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2" fill="none" stroke="currentColor" stroke-width="1.9"/><rect x="11" y="10" width="6.5" height="6.5" rx="1" fill="currentColor" opacity=".35" stroke="currentColor" stroke-width="1.6"/></symbol>
+      <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></symbol>
       <symbol id="i-page" viewBox="0 0 24 24"><path d="M6 3.5h8l4 4v13H6z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/><path d="M12 11v6M9 14h6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></symbol>
     </defs>
   </svg>
@@ -84,6 +87,24 @@
       <div class="sel-bar" id="sel-bar" hidden>
         <button data-act="dup">Duplicar</button>
         <button data-act="del" class="danger">Eliminar</button>
+      </div>
+      <div class="zoom-ctl" role="group" aria-label="Zoom">
+        <button id="z-out" aria-label="Alejar"><svg><use href="#i-minus"/></svg></button>
+        <button id="z-pct" class="pct" title="Volver al tamaño normal">100%</button>
+        <button id="z-in" aria-label="Acercar"><svg><use href="#i-plus"/></svg></button>
+        <button id="z-all" class="wide" aria-pressed="false" title="Ver toda la nota"><svg><use href="#i-fit"/></svg><span class="lbl">Ver todo</span></button>
+        <button id="z-map" aria-pressed="false" aria-label="Mostrar mapa de la nota" title="Mapa de la nota"><svg><use href="#i-map"/></svg></button>
+      </div>
+      <div class="minimap" id="minimap" hidden>
+        <div class="mm-label" id="mm-label"></div>
+        <canvas id="mm-cv" aria-label="Mapa de la nota: toca para ir a esa parte"></canvas>
+      </div>
+      <div class="overview" id="overview" hidden>
+        <div class="ov-head">
+          <div><h2>Todas las páginas</h2><p id="ov-sub"></p></div>
+          <button class="primary" id="ov-close">Volver a la nota</button>
+        </div>
+        <div class="ov-grid" id="ov-grid"></div>
       </div>
       <button class="add-page" id="add-page"><svg><use href="#i-page"/></svg>Página</button>
     </div>
