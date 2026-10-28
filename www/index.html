@@ -27,6 +27,9 @@
       <symbol id="i-fit" viewBox="0 0 24 24"><path d="M4 9V5.5A1.5 1.5 0 015.5 4H9M15 4h3.5A1.5 1.5 0 0120 5.5V9M20 15v3.5a1.5 1.5 0 01-1.5 1.5H15M9 20H5.5A1.5 1.5 0 014 18.5V15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><rect x="8.5" y="8.5" width="7" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
       <symbol id="i-map" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2" fill="none" stroke="currentColor" stroke-width="1.9"/><rect x="11" y="10" width="6.5" height="6.5" rx="1" fill="currentColor" opacity=".35" stroke="currentColor" stroke-width="1.6"/></symbol>
       <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></symbol>
+      <symbol id="i-index" viewBox="0 0 24 24"><path d="M9 6.5h11M9 12h11M9 17.5h7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M3.5 4h3v5l-1.5-1.3L3.5 9z" fill="currentColor"/><path d="M4 12h1M4 17.5h1" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></symbol>
+      <symbol id="i-mark" viewBox="0 0 24 24"><path d="M6.5 3.5h11v17l-5.5-4.2-5.5 4.2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+      <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></symbol>
       <symbol id="i-page" viewBox="0 0 24 24"><path d="M6 3.5h8l4 4v13H6z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/><path d="M12 11v6M9 14h6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></symbol>
     </defs>
   </svg>
@@ -46,7 +49,11 @@
           <button class="icon-btn" id="subject-menu" aria-label="Opciones de la materia" hidden><svg><use href="#i-dots"/></svg></button>
         </div>
         <div class="lib-tools">
-          <label class="search"><svg><use href="#i-search"/></svg><input id="search" type="search" placeholder="Buscar notas" autocomplete="off"></label>
+          <label class="search"><svg><use href="#i-search"/></svg><input id="search" type="search" placeholder="Buscar notas y títulos" autocomplete="off"></label>
+          <div class="seg" role="group" aria-label="Vista">
+            <button data-view="notes" aria-pressed="true">Notas</button>
+            <button data-view="index" aria-pressed="false"><svg><use href="#i-index"/></svg>Índice</button>
+          </div>
           <button class="primary" id="new-note"><svg><use href="#i-plus"/></svg>Nueva nota</button>
         </div>
       </header>
@@ -62,6 +69,7 @@
       <div class="ed-actions">
         <button class="icon-btn" id="ed-undo" aria-label="Deshacer"><svg><use href="#i-undo"/></svg></button>
         <button class="icon-btn" id="ed-redo" aria-label="Rehacer"><svg><use href="#i-redo"/></svg></button>
+        <button class="chip-btn" id="ed-index" aria-pressed="false" title="Índice y marcadores"><svg><use href="#i-index"/></svg><span class="lbl">Índice</span></button>
         <button class="chip-btn" id="ed-finger" aria-pressed="true"><svg><use href="#i-hand"/></svg><span class="lbl">Dedo dibuja</span></button>
         <button class="icon-btn" id="ed-more" aria-label="Más opciones"><svg><use href="#i-dots"/></svg></button>
       </div>
@@ -85,9 +93,19 @@
       <canvas id="cv-main"></canvas>
       <canvas id="cv-live"></canvas>
       <div class="sel-bar" id="sel-bar" hidden>
+        <button data-act="mark">Marcar en el índice</button>
         <button data-act="dup">Duplicar</button>
         <button data-act="del" class="danger">Eliminar</button>
       </div>
+      <aside class="index-panel" id="index-panel" hidden aria-label="Índice de la nota">
+        <div class="ix-head">
+          <h2>Índice</h2>
+          <button class="icon-btn" id="ix-close" aria-label="Cerrar índice"><svg><use href="#i-close"/></svg></button>
+        </div>
+        <button class="ix-add" id="ix-mark"><svg><use href="#i-mark"/></svg>Marcar esta parte</button>
+        <div class="ix-list" id="ix-list"></div>
+        <p class="ix-hint">Los textos en tamaño Título o Subtítulo aparecen aquí solos. Para un título escrito a mano, enciérralo con el lazo y toca “Marcar en el índice”.</p>
+      </aside>
       <div class="zoom-ctl" role="group" aria-label="Zoom">
         <button id="z-out" aria-label="Alejar"><svg><use href="#i-minus"/></svg></button>
         <button id="z-pct" class="pct" title="Volver al tamaño normal">100%</button>

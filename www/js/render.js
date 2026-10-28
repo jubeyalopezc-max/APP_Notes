@@ -139,6 +139,15 @@ function shapePath(it) {
   return path;
 }
 
+// Marcador: cinta de color con muesca, en el borde izquierdo de la página.
+export const MARK_W = 34, MARK_H = 30;
+function markPath(it) {
+  const p = new Path2D(), x = it.x, y = it.y;
+  p.moveTo(x, y); p.lineTo(x + MARK_W, y); p.lineTo(x + MARK_W - 9, y + MARK_H / 2);
+  p.lineTo(x + MARK_W, y + MARK_H); p.lineTo(x, y + MARK_H); p.closePath();
+  return p;
+}
+
 export function getPath(it) {
   let p = pathCache.get(it);
   if (!p) {
@@ -200,6 +209,8 @@ export function bounds(it) {
     }
   } else if (it.type === 'image') {
     b = { x0: it.x, y0: it.y, x1: it.x + it.w, y1: it.y + it.h };
+  } else if (it.type === 'mark') {
+    b = { x0: it.x, y0: it.y, x1: it.x + MARK_W, y1: it.y + MARK_H };
   } else if (it.type === 'text') {
     const lines = textLines(measureCtx, it);
     b = { x0: it.x, y0: it.y, x1: it.x + it.w, y1: it.y + lines.length * it.size * 1.3 };
@@ -209,6 +220,11 @@ export function bounds(it) {
 }
 
 export function drawItem(ctx, it, onImageLoad) {
+  if (it.type === 'mark') {
+    ctx.fillStyle = it.color;
+    ctx.fill(markPath(it));
+    return;
+  }
   if (it.type === 'image') {
     const img = getImage(it, onImageLoad);
     if (img.complete && img.naturalWidth) ctx.drawImage(img, it.x, it.y, it.w, it.h);
@@ -248,7 +264,7 @@ export function drawItem(ctx, it, onImageLoad) {
 export function hits(it, x, y, r) {
   const b = bounds(it);
   if (x < b.x0 - r || x > b.x1 + r || y < b.y0 - r || y > b.y1 + r) return false;
-  if (it.type === 'image' || it.type === 'text') return true;
+  if (it.type === 'image' || it.type === 'text' || it.type === 'mark') return true;
   const segD = (ax, ay, bx, by) => {
     const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
     let t = l2 ? ((x - ax) * dx + (y - ay) * dy) / l2 : 0;

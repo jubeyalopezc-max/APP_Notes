@@ -4,7 +4,9 @@ import { createEditor, PAPERS } from './editor.js';
 const $ = s => document.querySelector(s);
 const SUBJECT_COLORS = ['#2D55E0', '#12968A', '#D9442F', '#E7A21A', '#7A4BD6', '#1E9E5A', '#D23D86', '#46566F'];
 
-const state = { subjects: [], notes: [], current: 'all', query: '' };
+const MARK_COLORS = ['#D9442F', '#2D55E0', '#1E9E5A', '#E7A21A', '#7A4BD6'];
+
+const state = { subjects: [], notes: [], current: 'all', query: '', view: 'notes' };
 
 // ---------- Avisos ----------
 let toastTimer;
@@ -51,8 +53,8 @@ const buttons = (ok, danger) => `
     <button value="ok" class="${danger ? 'danger-fill' : 'primary'}">${ok}</button>
   </div>`;
 
-function colorPicker(selected) {
-  return `<div class="color-pick" role="radiogroup" aria-label="Color">${SUBJECT_COLORS.map(c =>
+function colorPicker(selected, colors = SUBJECT_COLORS) {
+  return `<div class="color-pick" role="radiogroup" aria-label="Color">${colors.map(c =>
     `<label style="--c:${c}"><input type="radio" name="color" value="${c}" ${c === selected ? 'checked' : ''}><span></span></label>`).join('')}</div>`;
 }
 
@@ -66,6 +68,18 @@ async function menu(title, options) {
     `<button value="${o.value}" class="${o.danger ? 'danger' : ''}">${esc(o.label)}</button>`).join('')}</div>
     <div class="dlg-actions"><button value="cancel" class="ghost">Cerrar</button></div>`);
   return r && r.action;
+}
+
+async function askMark({ isNew, title, color, snap }) {
+  const r = await dialog(`<h2>${isNew ? 'Nuevo marcador' : 'Marcador'}</h2>
+    ${snap ? `<img class="mark-snap" src="${snap}" alt="Lo que marcaste">` : ''}
+    <label class="field">Nombre${snap ? ' (opcional)' : ''}<input type="text" name="title" maxlength="80" value="${esc(title || '')}" placeholder="${snap ? 'Se mostrará lo que escribiste' : 'Tema 2: límites'}"></label>
+    <div class="field">Color${colorPicker(color || MARK_COLORS[0], MARK_COLORS)}</div>
+    ${isNew ? '' : '<div class="menu-list"><button value="del" class="danger">Eliminar marcador</button></div>'}
+    ${buttons(isNew ? 'Agregar al índice' : 'Guardar')}`);
+  if (!r) return null;
+  if (r.action) return r;
+  return { title: (r.title || '').trim() || (snap ? '' : 'Marcador'), color: r.color || MARK_COLORS[0] };
 }
 
 // ---------- Datos ----------
@@ -123,7 +137,12 @@ function renderNotes() {
   if (state.current === 'none') list = list.filter(n => !n.subjectId || !state.subjects.some(s => s.id === n.subjectId));
   else if (state.current !== 'all') list = list.filter(n => n.subjectId === state.current);
   const q = state.query.trim().toLowerCase();
-  if (q) list = list.filter(n => n.title.toLowerCase().includes(q));
+  document.querySelectorAll('.seg [data-view]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.view === state.view)));
+  const box0 = $('#notes');
+  box0.classList.toggle('as-index', state.view === 'index');
+  if (state.view === 'index') { renderIndexView(list, q); return; }
+  const inOutline = n => (n.outline || []).some(e => (e.title || '').toLowerCase().includes(q));
+  if (q) list = list.filter(n => n.title.toLowerCase().includes(q) || inOutline(n));
   list.sort((a, b) => b.updatedAt - a.updatedAt);
 
   const box = $('#notes');
@@ -156,6 +175,58 @@ function renderNotes() {
     card.querySelector('.thumb').onclick = () => openNote(n);
     card.querySelector('.icon-btn').onclick = () => noteMenu(n);
     box.appendChild(card);
+  }
+}
+
+// Índice de la materia: cada nota en orden de clase, con sus títulos y marcadores.
+function renderIndexView(list, q) {
+  const box = $('#notes');
+  box.innerHTML = '';
+  list = list.slice().sort((a, b) => a.createdAt - b.createdAt);
+  let shown = 0;
+  for (const n of list) {
+    const entries = n.outline || [];
+    const titleMatch = !q || n.title.toLowerCase().includes(q);
+    const vis = titleMatch ? entries : entries.filter(e => (e.title || '').toLowerCase().includes(q));
+    if (!titleMatch && !vis.length) continue;
+    shown++;
+    const s = state.subjects.find(x => x.id === n.subjectId);
+    const sec = document.createElement('section');
+    sec.className = 'ixn';
+    sec.style.setProperty('--c', s ? s.color : '#9AA6B8');
+    const head = document.createElement('button');
+    head.className = 'ixn-head';
+    head.innerHTML = `<span class="ixn-title">${esc(n.title)}</span><span class="ixn-date">${state.current === 'all' && s ? esc(s.name) + ', ' : ''}${new Date(n.createdAt).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })}</span>`;
+    head.onclick = () => openNote(n);
+    sec.appendChild(head);
+    if (!vis.length) {
+      const p = document.createElement('p');
+      p.className = 'ixn-none';
+      p.textContent = 'Sin títulos ni marcadores';
+      sec.appendChild(p);
+    }
+    for (const e of vis) {
+      const b = document.createElement('button');
+      b.className = 'ixn-row ' + e.kind;
+      if (e.kind === 'mark') b.style.setProperty('--m', e.color);
+      const main = document.createElement('span');
+      main.className = 'ixn-main';
+      if (e.kind === 'mark') main.insertAdjacentHTML('beforeend', '<span class="ix-flag"></span>');
+      if (e.title || !e.snap) { const t = document.createElement('span'); t.className = 'ixn-text'; t.textContent = e.title || 'Marcador'; main.appendChild(t); }
+      if (e.snap) { const im = new Image(); im.src = e.snap; im.alt = e.title ? '' : 'Título escrito a mano'; im.className = 'ix-snap'; main.appendChild(im); }
+      b.appendChild(main);
+      if (e.page) { const pg = document.createElement('span'); pg.className = 'ixn-page'; pg.textContent = `Pág. ${e.page}`; b.appendChild(pg); }
+      b.onclick = () => openNote(n, { x: e.x, y: e.y, id: e.id });
+      sec.appendChild(b);
+    }
+    box.appendChild(sec);
+  }
+  if (!shown) {
+    const empty = document.createElement('div');
+    empty.className = 'empty';
+    empty.innerHTML = q ? `<p>Nada en el índice coincide con “${esc(state.query)}”.</p>`
+      : `<p class="big">El índice se arma solo.</p><p>Los títulos que escribas con teclado y los marcadores de tus notas aparecen aquí, nota por nota.</p>`;
+    box.appendChild(empty);
   }
 }
 
@@ -263,15 +334,18 @@ async function renameNote(n) {
 let openMeta = null;
 const editor = createEditor({
   toast,
-  onSave: async (meta, content, thumb) => {
+  askMark,
+  onSave: async (meta, content, thumb, outline) => {
     meta.updatedAt = Date.now();
     meta.thumb = thumb;
+    // El índice de la materia usa los títulos y marcadores (sin imágenes, para no duplicar datos).
+    meta.outline = (outline || []).filter(e => e.kind !== 'image');
     await db.put('contents', { id: meta.id, ...content });
     await db.put('notes', meta);
   },
 });
 
-async function openNote(n) {
+async function openNote(n, focus) {
   const content = await db.get('contents', n.id);
   openMeta = n;
   $('#home').hidden = true;
@@ -279,7 +353,7 @@ async function openNote(n) {
   $('#ed-title').textContent = n.title;
   const s = state.subjects.find(x => x.id === n.subjectId);
   document.documentElement.style.setProperty('--subject', s ? s.color : 'var(--accent)');
-  editor.open(n, content);
+  editor.open(n, content, focus);
 }
 
 async function closeEditor() {
@@ -309,6 +383,7 @@ $('#home').addEventListener('click', e => {
   if (sp) { state.current = sp.dataset.subject; state.query = ''; $('#search').value = ''; render(); }
 });
 $('#add-subject').onclick = newSubject;
+document.querySelectorAll('.seg [data-view]').forEach(b => b.addEventListener('click', () => { state.view = b.dataset.view; renderNotes(); }));
 $('#subject-menu').onclick = subjectMenu;
 $('#new-note').onclick = newNote;
 $('#search').addEventListener('input', e => { state.query = e.target.value; renderNotes(); });

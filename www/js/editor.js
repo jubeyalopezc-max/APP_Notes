@@ -1,5 +1,5 @@
 import {
-  PAGE_W, PAGE_H, PAGE_GAP, pageTop, PAPERS, drawPaper, drawPaperArea, drawItem, bounds, hits, translated,
+  PAGE_W, PAGE_H, PAGE_GAP, pageTop, PAPERS, drawPaper, drawPaperArea, drawItem, bounds, hits, translated, MARK_W, MARK_H,
 } from './render.js';
 import { recognize, describeShape } from './shapes.js';
 import { uid } from './db.js';
@@ -10,7 +10,7 @@ const SIZES = {
   pen: [2.2, 4, 7.5],
   hl: [16, 26, 40],
   eraser: [10, 24, 50],
-  text: [22, 30, 44],
+  text: [22, 32, 46],   // normal, subtítulo, título (los dos últimos van al índice)
 };
 const HOLD_MS = 550;
 
@@ -22,7 +22,7 @@ function loadSettings() {
     pen: { color: PEN_COLORS[0], size: 1 },
     hl: { color: HL_COLORS[0], size: 1 },
     eraser: { size: 1 },
-    text: { color: PEN_COLORS[0], size: 1 },
+    text: { color: PEN_COLORS[0], size: 0 },
     fingerDraw: true,
     fingerDrawSetByUser: false,
     showMap: window.innerWidth > 700,
@@ -32,7 +32,7 @@ function loadSettings() {
 }
 function saveSettings(s) { try { localStorage.setItem('np-settings', JSON.stringify(s)); } catch {} }
 
-export function createEditor({ onSave, onClose, toast }) {
+export function createEditor({ onSave, onClose, toast, askMark }) {
   const stage = $('#stage');
   const cvMain = $('#cv-main');
   const cvLive = $('#cv-live');
@@ -305,6 +305,7 @@ export function createEditor({ onSave, onClose, toast }) {
     }
     updateZoomUI();
     paintMinimap();
+    if (!ixPanel.hidden) markCurrent();
   }
 
   // ---------- Zoom y mapa ----------
@@ -426,6 +427,22 @@ export function createEditor({ onSave, onClose, toast }) {
       lctx.strokeStyle = 'rgba(24,32,46,0.55)';
       lctx.stroke();
     }
+    if (flash) {
+      const t = (performance.now() - flash.t0) / 1300;
+      if (t >= 1) flash = null;
+      else if (t > 0) {
+        const a = t < 0.2 ? t / 0.2 : 1 - (t - 0.2) / 0.8;
+        const b = flash.b, pad = 12;
+        lctx.save();
+        lctx.fillStyle = `rgba(255,217,59,${0.38 * a})`;
+        lctx.strokeStyle = `rgba(224,150,0,${0.9 * a})`;
+        lctx.lineWidth = 2.5 / view.s;
+        lctx.beginPath();
+        lctx.roundRect(b.x0 - pad, b.y0 - pad, b.x1 - b.x0 + pad * 2, b.y1 - b.y0 + pad * 2, 10);
+        lctx.fill(); lctx.stroke();
+        lctx.restore();
+      }
+    }
     placeSelBar();
     if (selected.length) {
       const b = selBounds();
@@ -484,6 +501,7 @@ export function createEditor({ onSave, onClose, toast }) {
   function changed() {
     dirty = true;
     mmStale = true;
+    if (!ixPanel.hidden) renderIndex();
     redraw();
     clearTimeout(saveTimer);
     saveTimer = setTimeout(save, 900);
@@ -493,7 +511,7 @@ export function createEditor({ onSave, onClose, toast }) {
     clearTimeout(saveTimer);
     if (!note || !dirty) return;
     dirty = false;
-    await onSave(note, { items, pages, paper }, thumbnail());
+    await onSave(note, { items, pages, paper }, thumbnail(), outline());
   }
 
   function thumbnail() {
@@ -555,6 +573,7 @@ export function createEditor({ onSave, onClose, toast }) {
 
   function lassoSelect(poly) {
     const res = items.filter(it => {
+      if (it.type === 'mark') return false;
       if (it.type === 'stroke') {
         let n = 0, k = 0;
         for (let i = 0; i < it.pts.length; i += 3 * 3) { n++; if (pointInPoly(it.pts[i], it.pts[i + 1], poly)) k++; }
@@ -695,6 +714,8 @@ export function createEditor({ onSave, onClose, toast }) {
     try { cvLive.setPointerCapture(e.pointerId); } catch {}
     const p = toDoc(e.clientX, e.clientY);
     const tool = isEraserButton(e) ? 'eraser' : S.tool;
+    const mk = markAt(p);
+    if (mk && tool !== 'eraser') { action = null; editMark(mk); return; }
     action = { pointerId: e.pointerId, type: e.pointerType };
 
     if (tool === 'pen' || tool === 'magic' || tool === 'hl') {
@@ -851,7 +872,7 @@ export function createEditor({ onSave, onClose, toast }) {
 
   function eraseAt(p) {
     const r = action.r;
-    const keep = items.filter(it => it.type === 'image' || it.type === 'text' || !hits(it, p.x, p.y, r));
+    const keep = items.filter(it => it.type === 'image' || it.type === 'text' || it.type === 'mark' || !hits(it, p.x, p.y, r));
     if (keep.length !== items.length) { items = keep; action.changed = true; redraw(); }
   }
 
@@ -910,6 +931,206 @@ export function createEditor({ onSave, onClose, toast }) {
     redraw();
   }, { passive: false });
 
+
+  // ---------- Índice y marcadores ----------
+  const ixPanel = $('#index-panel'), ixList = $('#ix-list'), ixBtn = $('#ed-index');
+  let flash = null, lastMarkColor = null;
+
+  const pageOf = y => Math.max(1, Math.min(pages, Math.floor(y / (PAGE_H + PAGE_GAP)) + 1));
+
+  // Índice automático: marcadores, títulos y subtítulos con teclado, e imágenes, en orden de lectura.
+  function outline() {
+    const out = [];
+    for (const it of items) {
+      if (it.type === 'mark') {
+        const r = it.region;
+        out.push({ kind: 'mark', id: it.id, title: it.title || '', color: it.color, snap: it.snap || null, x: r ? r.x0 : it.x, y: r ? r.y0 : it.y });
+      } else if (it.type === 'text' && it.size >= 32 && it.text.trim()) {
+        out.push({ kind: it.size >= 46 ? 'h1' : 'h2', id: it.id, title: it.text.trim().split('\n')[0].slice(0, 90), x: it.x, y: it.y });
+      } else if (it.type === 'image') {
+        out.push({ kind: 'image', id: it.id, src: it.src, x: it.x, y: it.y });
+      }
+    }
+    for (const e of out) e.page = layout === 'pages' ? pageOf(e.y) : null;
+    // Elementos casi a la misma altura se ordenan de izquierda a derecha.
+    out.sort((a, b) => (a.page || 0) - (b.page || 0) || (Math.abs(a.y - b.y) > 24 ? a.y - b.y : a.x - b.x));
+    return out;
+  }
+
+  function toggleIndex(on = ixPanel.hidden) {
+    ixPanel.hidden = !on;
+    ixBtn.setAttribute('aria-pressed', String(on));
+    stage.classList.toggle('ix-open', on);
+    if (on) { if (!ov.hidden) closeOverview(); renderIndex(); }
+    redraw();
+  }
+
+  function renderIndex() {
+    const list = outline();
+    ixList.innerHTML = '';
+    if (!list.some(e => e.kind !== 'image')) {
+      const p = document.createElement('p');
+      p.className = 'ix-empty';
+      p.textContent = 'Esta nota todavía no tiene títulos ni marcadores.';
+      ixList.appendChild(p);
+    }
+    const groups = layout === 'pages' ? Array.from({ length: pages }, (_, i) => i + 1) : [null];
+    for (const pg of groups) {
+      if (pg !== null) {
+        const h = document.createElement('button');
+        h.className = 'ix-page';
+        h.dataset.y = pageTop(pg - 1);
+        h.textContent = `Página ${pg}`;
+        h.onclick = () => jumpTo({ x: 0, y: pageTop(pg - 1) + 20 }, null);
+        ixList.appendChild(h);
+      }
+      for (const e of list) if (e.page === pg) ixList.appendChild(entryEl(e));
+    }
+    markCurrent();
+  }
+
+  function entryEl(e) {
+    const row = document.createElement('div');
+    row.className = 'ix-row ' + e.kind;
+    row.dataset.y = e.y;
+    const b = document.createElement('button');
+    b.className = 'ix-item';
+    if (e.kind === 'mark') {
+      row.style.setProperty('--c', e.color);
+      const flag = document.createElement('span'); flag.className = 'ix-flag';
+      const body = document.createElement('span'); body.className = 'ix-body';
+      if (e.title || !e.snap) { const t = document.createElement('span'); t.className = 'ix-title'; t.textContent = e.title || 'Marcador'; body.appendChild(t); }
+      if (e.snap) { const im = new Image(); im.src = e.snap; im.alt = e.title ? '' : 'Título escrito a mano'; im.className = 'ix-snap'; body.appendChild(im); }
+      b.append(flag, body);
+    } else if (e.kind === 'image') {
+      const im = new Image(); im.src = e.src; im.alt = ''; im.className = 'ix-thumb';
+      const t = document.createElement('span'); t.className = 'ix-title'; t.textContent = 'Imagen';
+      b.append(im, t);
+    } else {
+      const t = document.createElement('span'); t.className = 'ix-title'; t.textContent = e.title;
+      b.appendChild(t);
+    }
+    b.onclick = () => jumpTo(e, e.id);
+    row.appendChild(b);
+    if (e.kind === 'mark') {
+      const ed = document.createElement('button');
+      ed.className = 'icon-btn small';
+      ed.setAttribute('aria-label', 'Editar marcador');
+      ed.innerHTML = '<svg><use href="#i-dots"/></svg>';
+      ed.onclick = () => { const mk = items.find(it => it.id === e.id); if (mk) editMark(mk); };
+      row.appendChild(ed);
+    }
+    return row;
+  }
+
+  // Resalta en el índice la sección que se está viendo.
+  function markCurrent() {
+    const y = (-view.oy + H * 0.3) / view.s;
+    let cur = null;
+    for (const el of ixList.querySelectorAll('[data-y]')) {
+      el.removeAttribute('aria-current');
+      if (+el.dataset.y <= y) cur = el;
+    }
+    if (cur) cur.setAttribute('aria-current', 'true');
+  }
+
+  function jumpTo(pos, id, instant) {
+    if (!ov.hidden) closeOverview();
+    prevView = null;
+    let target;
+    if (layout === 'pages') {
+      const s = Math.min((W - 32) / PAGE_W, 1.4);
+      target = { s, ox: (W - PAGE_W * s) / 2, oy: 28 - (pos.y - 24) * s };
+    } else {
+      const s = Math.max(view.s, 0.8);
+      target = { s, ox: 48 - (pos.x - 40) * s, oy: 48 - (pos.y - 40) * s };
+    }
+    const it = id && items.find(x => x.id === id);
+    if (it) {
+      let b = it.type === 'mark' ? (it.region || { x0: it.x, y0: it.y, x1: layout === 'pages' ? PAGE_W - 40 : it.x + 500, y1: it.y + MARK_H }) : bounds(it);
+      flash = { b, t0: performance.now() + (instant ? 150 : 300) };
+      const loop = () => { paintLive(); if (flash) requestAnimationFrame(loop); };
+      requestAnimationFrame(loop);
+    }
+    if (W < 900 && !ixPanel.hidden) toggleIndex(false);
+    if (instant) { view = target; clampView(); redraw(); }
+    else animateTo(target);
+  }
+
+  function markAt(p) {
+    const tol = 6 / view.s;
+    for (let i = items.length - 1; i >= 0; i--) {
+      const it = items[i];
+      if (it.type === 'mark' && p.x >= it.x - tol && p.x <= it.x + MARK_W + tol && p.y >= it.y - tol && p.y <= it.y + MARK_H + tol) return it;
+    }
+    return null;
+  }
+
+  async function addMarkHere() {
+    let y = (-view.oy + 36) / view.s;
+    const x = layout === 'pages' ? 0 : (-view.ox + 24) / view.s;
+    if (layout === 'pages') {
+      // Que el marcador quede dentro de una hoja, no en el espacio entre dos.
+      const i = Math.max(0, Math.min(pages - 1, Math.floor(y / (PAGE_H + PAGE_GAP))));
+      const top = pageTop(i);
+      if (y > top + PAGE_H - MARK_H - 8) y = i + 1 < pages ? pageTop(i + 1) + 16 : top + PAGE_H - MARK_H - 8;
+      if (y < top + 8) y = top + 8;
+    }
+    const r = await askMark({ isNew: true, title: '', color: lastMarkColor });
+    if (!r) return;
+    lastMarkColor = r.color;
+    pushUndo();
+    items.push({ id: uid(), type: 'mark', x, y, title: r.title, color: r.color });
+    changed();
+    toast('Marcador agregado al índice');
+  }
+
+  // Recorte de lo seleccionado, para mostrar un título escrito a mano en el índice.
+  function snapshotOf(list, b) {
+    const pad = 8, bw = b.x1 - b.x0 + pad * 2, bh = b.y1 - b.y0 + pad * 2;
+    const k = Math.min(2, 120 / bh, 640 / bw);
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(bw * k)); c.height = Math.max(1, Math.round(bh * k));
+    const g = c.getContext('2d');
+    g.scale(k, k); g.translate(pad - b.x0, pad - b.y0);
+    for (const it of list) drawItem(g, it, () => {});
+    return c.toDataURL('image/png');
+  }
+
+  async function markSelection() {
+    const sel = selected.filter(it => it.type !== 'mark');
+    if (!sel.length) return;
+    const b = selBounds();
+    const onlyText = sel.length === 1 && sel[0].type === 'text';
+    const snap = onlyText ? null : snapshotOf(sel, b);
+    const r = await askMark({ isNew: true, title: onlyText ? sel[0].text.trim().split('\n')[0].slice(0, 80) : '', color: lastMarkColor, snap });
+    if (!r) return;
+    lastMarkColor = r.color;
+    pushUndo();
+    items.push({
+      id: uid(), type: 'mark', title: r.title, color: r.color, snap,
+      x: layout === 'pages' ? 0 : b.x0 - MARK_W - 12, y: b.y0, region: { ...b },
+    });
+    setSelection([]);
+    changed();
+    toast('Marcado. Ya aparece en el índice.');
+  }
+
+  async function editMark(mk) {
+    const r = await askMark({ isNew: false, title: mk.title, color: mk.color, snap: mk.snap });
+    if (!r) return;
+    const i = items.indexOf(mk);
+    if (i < 0) return;
+    pushUndo();
+    if (r.action === 'del') { items.splice(i, 1); toast('Marcador eliminado'); }
+    else { items[i] = { ...mk, title: r.title, color: r.color }; lastMarkColor = r.color; }
+    changed();
+  }
+
+  ixBtn.onclick = () => toggleIndex();
+  $('#ix-close').onclick = () => toggleIndex(false);
+  $('#ix-mark').onclick = addMarkHere;
+
   // ---------- Barra de herramientas ----------
   function setTool(t) {
     if (t === 'image') { pickImage(); return; }
@@ -951,7 +1172,8 @@ export function createEditor({ onSave, onClose, toast }) {
       SIZES[t].forEach((v, i) => {
         const b = document.createElement('button');
         b.className = 'size';
-        b.setAttribute('aria-label', ['Fino', 'Medio', 'Grueso'][i]);
+        b.setAttribute('aria-label', (t === 'text' ? ['Texto normal', 'Subtítulo', 'Título'] : ['Fino', 'Medio', 'Grueso'])[i]);
+        b.title = b.getAttribute('aria-label');
         b.setAttribute('aria-pressed', String(S[t].size === i));
         const dot = document.createElement('span');
         const px = t === 'hl' ? [8, 12, 16][i] : t === 'eraser' ? [8, 13, 19][i] : t === 'text' ? [10, 14, 19][i] : [4, 7, 11][i];
@@ -997,6 +1219,7 @@ export function createEditor({ onSave, onClose, toast }) {
   selBar.addEventListener('click', e => {
     const act = e.target.closest('button')?.dataset.act;
     if (act === 'del') { pushUndo(); const set = new Set(selected); items = items.filter(it => !set.has(it)); setSelection([]); changed(); }
+    if (act === 'mark') markSelection();
     if (act === 'dup') {
       pushUndo();
       const copies = selected.map(it => ({ ...translated(it, 30, 30), id: uid() }));
@@ -1029,7 +1252,7 @@ export function createEditor({ onSave, onClose, toast }) {
 
   // ---------- API ----------
   return {
-    open(meta, content) {
+    open(meta, content, focus) {
       note = meta;
       items = (content && content.items) || [];
       pages = (content && content.pages) || 1;
@@ -1041,7 +1264,13 @@ export function createEditor({ onSave, onClose, toast }) {
       updateUndoButtons();
       updateFingerButton();
       setTool(S.tool === 'image' ? 'pen' : S.tool);
-      requestAnimationFrame(() => { resize(); fitWidth(); clampView(); redraw(); });
+      ixPanel.hidden = true; ixBtn.setAttribute('aria-pressed', 'false');
+      stage.classList.remove('ix-open');
+      requestAnimationFrame(() => {
+        resize(); fitWidth(); clampView();
+        if (focus) jumpTo(focus, focus.id, true);
+        redraw();
+      });
     },
     async close() {
       finishText();
@@ -1057,7 +1286,7 @@ export function createEditor({ onSave, onClose, toast }) {
     addPage,
     save,
     get isOpen() { return !!note; },
-    deselect() { if (!ov.hidden) { closeOverview(); redraw(); return true; } if (selected.length) { setSelection([]); return true; } if (editingText) { finishText(); return true; } return false; },
+    deselect() { if (!ixPanel.hidden) { toggleIndex(false); return true; } if (!ov.hidden) { closeOverview(); redraw(); return true; } if (selected.length) { setSelection([]); return true; } if (editingText) { finishText(); return true; } return false; },
   };
 }
 
