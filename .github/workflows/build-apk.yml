@@ -51,7 +51,19 @@ jobs:
           NOTESPRO_VERSION_CODE: ${{ github.run_number }}
         run: |
           chmod +x gradlew
-          ./gradlew assembleRelease --no-daemon
+          set +e
+          ./gradlew assembleRelease --no-daemon 2>&1 | tee "$RUNNER_TEMP/gradle.log"
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -ne 0 ]; then
+            # Resumen del error como anotación (visible en la página del resultado).
+            summary=$(awk '/What went wrong/{f=1} f{print} /^\* Try:/{exit}' "$RUNNER_TEMP/gradle.log" | head -60)
+            [ -z "$summary" ] && summary=$(grep -iE "error|exception|failed" "$RUNNER_TEMP/gradle.log" | head -40)
+            [ -z "$summary" ] && summary=$(tail -40 "$RUNNER_TEMP/gradle.log")
+            enc=$(printf '%s' "$summary" | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g')
+            echo "::error title=Error de Gradle::$enc"
+            exit "$status"
+          fi
           cp app/build/outputs/apk/release/app-release.apk "$GITHUB_WORKSPACE/NotesPro-v1.0.${{ github.run_number }}.apk"
 
       - name: Publicar el APK
