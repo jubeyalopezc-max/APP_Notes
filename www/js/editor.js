@@ -1,5 +1,5 @@
 import {
-  PAGE_W, PAGE_H, PAGE_GAP, pageTop, PAPERS, drawPaper, drawPaperArea, drawItem, bounds, hits, translated, MARK_W, MARK_H,
+  PAGE_W, PAGE_H, PAGE_GAP, pageTop, PAPERS, drawPaper, drawPaperArea, drawItem, bounds, hits, translated, MARK_W, MARK_H, textLines,
 } from './render.js';
 import { recognize, describeShape } from './shapes.js';
 import { uid } from './db.js';
@@ -514,6 +514,7 @@ export function createEditor({ onSave, onClose, toast, askMark, onCapture }) {
 
   function changed() {
     dirty = true;
+    coverCache = null;
     mmStale = true;
     if (!ixPanel.hidden) renderIndex();
     redraw();
@@ -1182,15 +1183,66 @@ export function createEditor({ onSave, onClose, toast, askMark, onCapture }) {
   }
 
   // Bloques que tapan: los dibujados con la herramienta y, si se pide, lo resaltado.
+  // Agranda un bloque para que tape completo lo que toca: los trazos que quedan en buena parte
+  // dentro, y las palabras y renglones completos del texto escrito con teclado.
+  const measure = document.createElement('canvas').getContext('2d');
+  function fitCover(r) {
+    let x0 = r.x, y0 = r.y, x1 = r.x + r.w, y1 = r.y + r.h;
+    const inside = (x, y) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+    for (const it of items) {
+      if (it.bg || it.type === 'mark' || it.type === 'cover' || it.type === 'image') continue;
+      const b = bounds(it);
+      if (b.x1 < r.x || b.x0 > r.x + r.w || b.y1 < r.y || b.y0 > r.y + r.h) continue;
+      if (it.type === 'text') {
+        const lines = textLines(measure, it);
+        const lh = it.size * 1.3;
+        lines.forEach((ln, i) => {
+          const ly0 = it.y + i * lh, ly1 = ly0 + lh;
+          const ov = Math.min(ly1, r.y + r.h) - Math.max(ly0, r.y);
+          if (ov < lh * 0.25) return;
+          let cx = it.x;
+          for (const word of ln.split(' ')) {
+            const ww = measure.measureText(word).width;
+            const wov = Math.min(cx + ww, r.x + r.w) - Math.max(cx, r.x);
+            if (word && wov > ww * 0.4) {
+              x0 = Math.min(x0, cx); x1 = Math.max(x1, cx + ww);
+              y0 = Math.min(y0, ly0); y1 = Math.max(y1, ly1);
+            }
+            cx += ww + measure.measureText(' ').width;
+          }
+        });
+        continue;
+      }
+      if (it.type === 'stroke') {
+        if (it.tool === 'hl') continue;
+        let n = 0, k = 0;
+        for (let i = 0; i < it.pts.length; i += 3) { n++; if (inside(it.pts[i], it.pts[i + 1])) k++; }
+        if (!n || k / n < 0.3) continue;
+      } else if (it.type === 'shape') {
+        const area = Math.max(1, (b.x1 - b.x0) * (b.y1 - b.y0));
+        const ix = Math.max(0, Math.min(b.x1, r.x + r.w) - Math.max(b.x0, r.x)) * Math.max(0, Math.min(b.y1, r.y + r.h) - Math.max(b.y0, r.y));
+        if (ix / area < 0.3) continue;
+      }
+      x0 = Math.min(x0, b.x0); y0 = Math.min(y0, b.y0); x1 = Math.max(x1, b.x1); y1 = Math.max(y1, b.y1);
+    }
+    const pad = 4;
+    return { x: x0 - pad, y: y0 - pad, w: x1 - x0 + pad * 2, h: y1 - y0 + pad * 2 };
+  }
+
+  let coverCache = null;
   function coverList() {
-    const list = items.filter(it => it.type === 'cover');
+    const key = `${studying}|${S.coverHl}|${items.length}`;
+    if (coverCache && coverCache.key === key) return coverCache.list;
+    const list = items.filter(it => it.type === 'cover')
+      .map(c => (studying ? { ...c, ...fitCover(c) } : c));
     if (studying && S.coverHl) {
       for (const it of items) {
         if (it.type !== 'stroke' || it.tool !== 'hl') continue;
         const b = bounds(it);
-        list.push({ id: it.id, type: 'cover', virtual: true, x: b.x0 + 2, y: b.y0 + 2, w: b.x1 - b.x0 - 4, h: b.y1 - b.y0 - 4 });
+        list.push({ id: it.id, type: 'cover', virtual: true, ...fitCover({ x: b.x0 + 2, y: b.y0 + 2, w: b.x1 - b.x0 - 4, h: b.y1 - b.y0 - 4 }) });
       }
     }
+    coverCache = { key, list };
     return list;
   }
 
@@ -1255,6 +1307,7 @@ export function createEditor({ onSave, onClose, toast, askMark, onCapture }) {
 
   function toggleStudy(on = !studying) {
     studying = on;
+    coverCache = null;
     revealed.clear();
     studyBtn.setAttribute('aria-pressed', String(on));
     studyBar.hidden = !on;
@@ -1296,7 +1349,7 @@ export function createEditor({ onSave, onClose, toast, askMark, onCapture }) {
     }
     if (a.mode === 'cover') {
       pushUndo();
-      items.push({ id: uid(), type: 'cover', x: r.x, y: r.y, w: r.w, h: r.h });
+      items.push({ id: uid(), type: 'cover', ...fitCover(r) });
       changed();
       return;
     }
