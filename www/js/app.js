@@ -1,6 +1,7 @@
 import { db, uid, persist } from './db.js';
 import { createEditor, PAPERS } from './editor.js';
 import { exportPdf, safeFileName } from './export.js';
+import { PAGE_H, PAGE_GAP } from './render.js';
 import { shareFile, saveToDevice, isNative, DEVICE_FOLDER } from './files.js';
 import { buildBackup, backupFileName, backupInfo, markManualBackup, autoBackup, setAutoBackup, readBackup, restoreBackup } from './backup.js';
 
@@ -152,7 +153,8 @@ function renderNotes() {
   const box0 = $('#notes');
   box0.classList.toggle('as-index', state.view === 'index');
   if (state.view === 'index') { renderIndexView(list, q); return; }
-  const inOutline = n => (n.outline || []).some(e => (e.title || '').toLowerCase().includes(q));
+  const inOutline = n => (n.outline || []).some(e => (e.title || '').toLowerCase().includes(q))
+    || (n.pdfText && n.pdfText.toLowerCase().includes(q));
   if (q) list = list.filter(n => n.title.toLowerCase().includes(q) || inOutline(n));
   list.sort((a, b) => b.updatedAt - a.updatedAt);
 
@@ -383,10 +385,11 @@ async function editorMore() {
   const act = await dialog(`<h2>Opciones de la nota</h2>
     <div class="field">Fondo<div class="paper-pick">${Object.entries(PAPERS).map(([k, v]) =>
       `<label><input type="radio" name="paper" value="${k}" ${editor.paper === k ? 'checked' : ''}><span class="paper-swatch ${k}"></span>${v}</label>`).join('')}</div></div>
-    <div class="menu-list"><button value="all">Ver toda la nota</button>${editor.layout === 'pages' ? '<button value="page">Agregar página al final</button>' : ''}<button value="rename">Cambiar título</button><button value="pdf">Exportar a PDF</button></div>
+    <div class="menu-list"><button value="all">Ver toda la nota</button>${editor.layout === 'pages' ? '<button value="page">Agregar página al final</button>' : ''}<button value="rename">Cambiar título</button><button value="pdf">Exportar a PDF</button><button value="addpdf">Agregar páginas de un PDF</button></div>
     <div class="dlg-actions"><button value="cancel" class="ghost">Cerrar</button><button value="ok" class="primary">Aplicar fondo</button></div>`);
   if (!act) return;
   if (act.action === 'pdf') { await editor.save(); exportNotesPdf([openMeta]); }
+  else if (act.action === 'addpdf') pickPdf('append');
   else if (act.action === 'all') editor.showAll();
   else if (act.action === 'page') editor.addPage();
   else if (act.action === 'rename') renameNote(openMeta);
@@ -435,6 +438,85 @@ function exportSubjectPdf(s) {
     }
   });
 }
+
+// ---------- Importar PDF ----------
+let pdfMode = 'new';
+function pickPdf(mode) {
+  pdfMode = mode;
+  const i = $('#pdf-input');
+  i.value = '';
+  i.click();
+}
+
+async function loadPdf(file) {
+  toast('Abriendo el PDF…', { sticky: true });
+  const { openPdf } = await import('./pdfimport.js');
+  const doc = await openPdf(file);
+  $('#toast').classList.remove('show');
+  return doc;
+}
+
+async function convertPdf(doc, startPage) {
+  const { pdfToItems } = await import('./pdfimport.js');
+  return pdfToItems(doc, {
+    startPage,
+    onProgress: (d, t) => toast(`Importando el PDF: página ${d} de ${t}`, { sticky: true }),
+  });
+}
+
+$('#pdf-input').addEventListener('change', async e => {
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  if (pdfMode === 'append' && editor.isOpen) {
+    await withBusy(async () => {
+      try {
+        const start = editor.isEmpty ? 0 : editor.pageCount;
+        const r = await convertPdf(await loadPdf(file), start);
+        editor.appendPdf(r.items, r.pageCount, editor.isEmpty);
+        openMeta.pdfText = ((openMeta.pdfText || '') + '\n' + r.text).slice(0, 400000);
+        toast(`Se agregaron ${r.pageCount} página${r.pageCount === 1 ? '' : 's'} del PDF.${r.truncated ? ' (Solo las primeras 300.)' : ''}`, { long: true });
+      } catch (err) {
+        console.error(err);
+        toast(err.message || 'No se pudo importar el PDF.', { long: true });
+      }
+    });
+    return;
+  }
+  let doc;
+  try { doc = await loadPdf(file); }
+  catch (err) { toast(err.message || 'No se pudo abrir el PDF.', { long: true }); return; }
+  const sub = currentSubject();
+  const guess = file.name.replace(/\.pdf$/i, '').replace(/[_]+/g, ' ').trim().slice(0, 80);
+  const r = await dialog(`<h2>Importar PDF</h2>
+    <p class="dlg-text">${doc.numPages} página${doc.numPages === 1 ? '' : 's'}${doc.numPages > 300 ? ' (se importan las primeras 300)' : ''}. Cada página del PDF queda como una hoja de la nota para escribir encima. Las diapositivas horizontales quedan arriba y abajo te queda espacio para apuntes.</p>
+    <label class="field">Título<input type="text" name="title" maxlength="80" value="${esc(guess)}"></label>
+    <label class="field">Materia<select name="subjectId"><option value="">Sin materia</option>${state.subjects.map(s =>
+      `<option value="${s.id}" ${sub && sub.id === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></label>
+    <div class="field">Fondo del espacio libre<div class="paper-pick">${Object.entries(PAPERS).map(([k, v]) =>
+      `<label><input type="radio" name="paper" value="${k}" ${k === 'lines' ? 'checked' : ''}><span class="paper-swatch ${k}"></span>${v}</label>`).join('')}</div></div>
+    ${buttons('Importar')}`);
+  if (!r) { doc.destroy(); return; }
+  await withBusy(async () => {
+    try {
+      const res = await convertPdf(doc, 0);
+      const n = {
+        id: uid(), title: (r.title || '').trim() || guess || 'PDF importado', subjectId: r.subjectId || null,
+        paper: r.paper || 'lines', layout: 'pages', createdAt: Date.now(), updatedAt: Date.now(),
+        thumb: res.thumb, pdfText: res.text,
+        outline: res.items.filter(i => i.title).map(i => ({ kind: 'pdf', id: i.id, title: i.title, x: i.x, y: i.y, page: Math.floor(i.y / (PAGE_H + PAGE_GAP)) + 1 })),
+      };
+      await db.put('contents', { id: n.id, items: res.items, pages: res.pageCount });
+      await db.put('notes', n);
+      state.notes.push(n);
+      render();
+      toast(`PDF importado: ${res.pageCount} página${res.pageCount === 1 ? '' : 's'}.${res.truncated ? ' (Solo las primeras 300.)' : ''}`, { long: true });
+      openNote(n);
+    } catch (err) {
+      console.error(err);
+      toast(err.message || 'No se pudo importar el PDF.', { long: true });
+    }
+  });
+});
 
 // ---------- Copia de seguridad ----------
 function sinceText(t) {
@@ -536,6 +618,7 @@ $('#backup-btn').onclick = backupDialog;
 document.querySelectorAll('.seg [data-view]').forEach(b => b.addEventListener('click', () => { state.view = b.dataset.view; renderNotes(); }));
 $('#subject-menu').onclick = subjectMenu;
 $('#new-note').onclick = newNote;
+$('#import-pdf').onclick = () => pickPdf('new');
 $('#search').addEventListener('input', e => { state.query = e.target.value; renderNotes(); });
 $('#ed-back').onclick = closeEditor;
 $('#ed-title').onclick = () => openMeta && renameNote(openMeta);

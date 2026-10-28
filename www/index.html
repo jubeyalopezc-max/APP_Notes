@@ -31,6 +31,7 @@
       <symbol id="i-mark" viewBox="0 0 24 24"><path d="M6.5 3.5h11v17l-5.5-4.2-5.5 4.2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
       <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></symbol>
       <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l7.5 3v5.5c0 4.6-3.2 8.3-7.5 9.5-4.3-1.2-7.5-4.9-7.5-9.5V6z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/><path d="M8.6 12.2l2.4 2.4 4.6-4.8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-pdf" viewBox="0 0 24 24"><path d="M6 3.5h8l4 4v13H6z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/><path d="M12 10v6.5M9.2 13.8L12 16.6l2.8-2.8" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></symbol>
       <symbol id="i-page" viewBox="0 0 24 24"><path d="M6 3.5h8l4 4v13H6z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/><path d="M12 11v6M9 14h6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></symbol>
     </defs>
   </svg>
@@ -44,6 +45,7 @@
       <button class="add-subject" id="add-subject"><svg><use href="#i-plus"/></svg>Nueva materia</button>
       <button class="rail-backup" id="backup-btn"><svg><use href="#i-shield"/></svg>Copia de seguridad</button>
       <input type="file" id="restore-input" hidden>
+      <input type="file" id="pdf-input" accept="application/pdf,.pdf" hidden>
     </nav>
     <section class="library">
       <header class="lib-head">
@@ -63,6 +65,7 @@
             <button data-view="notes" aria-pressed="true">Notas</button>
             <button data-view="index" aria-pressed="false"><svg><use href="#i-index"/></svg>Índice</button>
           </div>
+          <button class="secondary" id="import-pdf"><svg><use href="#i-pdf"/></svg>Importar PDF</button>
           <button class="primary" id="new-note"><svg><use href="#i-plus"/></svg>Nueva nota</button>
         </div>
       </header>

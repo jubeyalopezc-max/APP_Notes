@@ -8,6 +8,7 @@ App de notas para la universidad, hecha para tablets Android con lápiz óptico.
   (o mantén el lápiz quieto al final de un trazo con el lápiz normal)
 - Resaltador, borrador, lazo para seleccionar y mover, texto con teclado
 - Insertar imágenes desde la galería o la cámara
+- **Importar PDF** (diapositivas, guías) y escribir encima: cada página queda como fondo de una hoja; los títulos de cada página entran al índice y el texto del PDF se puede buscar
 - Dos formatos: **hojas** (páginas una debajo de otra) o **lienzo libre** (sin bordes, hacia cualquier lado)
 - Fondos rayado, cuadriculado, de puntos o en blanco
 - **Ver todo**: en hojas muestra todas las páginas en cuadrícula; en el lienzo aleja la vista hasta que se vea todo lo dibujado

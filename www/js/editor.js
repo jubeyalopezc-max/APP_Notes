@@ -573,7 +573,7 @@ export function createEditor({ onSave, onClose, toast, askMark }) {
 
   function lassoSelect(poly) {
     const res = items.filter(it => {
-      if (it.type === 'mark') return false;
+      if (it.type === 'mark' || it.bg) return false;
       if (it.type === 'stroke') {
         let n = 0, k = 0;
         for (let i = 0; i < it.pts.length; i += 3 * 3) { n++; if (pointInPoly(it.pts[i], it.pts[i + 1], poly)) k++; }
@@ -588,6 +588,7 @@ export function createEditor({ onSave, onClose, toast, askMark }) {
   function topItemAt(x, y, types) {
     for (let i = items.length - 1; i >= 0; i--) {
       const it = items[i];
+      if (it.bg) continue; // las páginas de un PDF importado no se seleccionan
       if (types && !types.includes(it.type)) continue;
       if (hits(it, x, y, 10 / view.s)) return it;
     }
@@ -947,6 +948,8 @@ export function createEditor({ onSave, onClose, toast, askMark }) {
         out.push({ kind: 'mark', id: it.id, title: it.title || '', color: it.color, snap: it.snap || null, x: r ? r.x0 : it.x, y: r ? r.y0 : it.y });
       } else if (it.type === 'text' && it.size >= 32 && it.text.trim()) {
         out.push({ kind: it.size >= 46 ? 'h1' : 'h2', id: it.id, title: it.text.trim().split('\n')[0].slice(0, 90), x: it.x, y: it.y });
+      } else if (it.type === 'image' && it.bg) {
+        if (it.title) out.push({ kind: 'pdf', id: it.id, title: it.title, x: it.x, y: it.y });
       } else if (it.type === 'image') {
         out.push({ kind: 'image', id: it.id, src: it.src, x: it.x, y: it.y });
       }
@@ -1282,6 +1285,17 @@ export function createEditor({ onSave, onClose, toast, askMark }) {
     setPaper(p) { paper = p; note.paper = p; dirty = true; changed(); },
     get paper() { return paper; },
     get layout() { return layout; },
+    get pageCount() { return pages; },
+    get isEmpty() { return !items.length; },
+    // Agrega páginas de un PDF importado (ya convertidas) al final de la nota.
+    appendPdf(bgItems, count, replaceFirst) {
+      pushUndo();
+      items = [...bgItems, ...items];
+      pages = replaceFirst ? Math.max(pages, count) : pages + count;
+      changed();
+      clampView();
+      redraw();
+    },
     showAll,
     addPage,
     save,
