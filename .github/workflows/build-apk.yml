@@ -32,15 +32,15 @@ jobs:
 
       - name: Preparar clave de firma
         env:
-          KEYSTORE_B64: ${{ secrets.NOTESPRO_KEYSTORE_B64 }}
+          PW: ${{ secrets.NOTESPRO_KEYSTORE_PASSWORD }}
         run: |
-          if [ -n "$KEYSTORE_B64" ]; then
-            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/notespro.jks"
-            echo "NOTESPRO_KEYSTORE=$RUNNER_TEMP/notespro.jks" >> "$GITHUB_ENV"
-          else
-            echo "::error::Falta el secreto NOTESPRO_KEYSTORE_B64"
+          if [ -z "$PW" ]; then
+            echo "::error::Falta el secreto NOTESPRO_KEYSTORE_PASSWORD (Settings > Secrets and variables > Actions)."
             exit 1
           fi
+          # La clave de firma está en el repositorio cifrada; solo la contraseña es secreta.
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -in android/notespro.jks.enc -out "$RUNNER_TEMP/notespro.jks" -pass env:PW
+          echo "NOTESPRO_KEYSTORE=$RUNNER_TEMP/notespro.jks" >> "$GITHUB_ENV"
 
       - name: Compilar APK
         working-directory: android
