@@ -26,13 +26,15 @@ function loadSettings() {
     fingerDraw: true,
     fingerDrawSetByUser: false,
     showMap: window.innerWidth > 700,
+    studyMode: 'cover',   // herramienta Estudio: 'cover' (tapar) o 'card' (tarjeta)
+    coverHl: false,       // en modo Estudiar, tapar también lo resaltado
   };
   try { return { ...def, ...JSON.parse(localStorage.getItem('np-settings') || '{}') }; }
   catch { return def; }
 }
 function saveSettings(s) { try { localStorage.setItem('np-settings', JSON.stringify(s)); } catch {} }
 
-export function createEditor({ onSave, onClose, toast, askMark }) {
+export function createEditor({ onSave, onClose, toast, askMark, onCapture }) {
   const stage = $('#stage');
   const cvMain = $('#cv-main');
   const cvLive = $('#cv-live');
@@ -303,6 +305,7 @@ export function createEditor({ onSave, onClose, toast, askMark }) {
       if (b.y1 < vy0 || b.y0 > vy1 || b.x1 < vx0 || b.x0 > vx1) continue;
       drawItem(ctx, it, redraw);
     }
+    drawCovers(ctx, vx0, vy0, vx1, vy1);
     updateZoomUI();
     paintMinimap();
     if (!ixPanel.hidden) markCurrent();
@@ -418,6 +421,17 @@ export function createEditor({ onSave, onClose, toast, askMark }) {
       lctx.beginPath();
       action.pts.forEach((q, i) => i ? lctx.lineTo(q.x, q.y) : lctx.moveTo(q.x, q.y));
       lctx.closePath(); lctx.fill(); lctx.stroke();
+      lctx.restore();
+    }
+    if (action && action.kind === 'rect') {
+      const r = normRect(action.start, action.cur);
+      lctx.save();
+      lctx.setLineDash([8 / view.s, 6 / view.s]);
+      lctx.lineWidth = 2 / view.s;
+      lctx.strokeStyle = action.mode === 'card' ? '#B07800' : subjectColor();
+      lctx.fillStyle = action.mode === 'card' ? 'rgba(255,217,59,0.22)' : hexA(subjectColor(), 0.18);
+      lctx.fillRect(r.x, r.y, r.w, r.h);
+      lctx.strokeRect(r.x, r.y, r.w, r.h);
       lctx.restore();
     }
     if (action && action.kind === 'erase' && action.at) {
@@ -548,7 +562,7 @@ export function createEditor({ onSave, onClose, toast, askMark }) {
     }
     return { x0, y0, x1, y1 };
   }
-  const canResize = () => selected.length === 1 && (selected[0].type === 'image' || selected[0].type === 'text');
+  const canResize = () => selected.length === 1 && ['image', 'text', 'cover'].includes(selected[0].type);
 
   function placeSelBar() {
     if (!selected.length || (action && (action.kind === 'drag' || action.kind === 'resize'))) { selBar.hidden = true; return; }
@@ -717,6 +731,10 @@ export function createEditor({ onSave, onClose, toast, askMark }) {
     const tool = isEraserButton(e) ? 'eraser' : S.tool;
     const mk = markAt(p);
     if (mk && tool !== 'eraser') { action = null; editMark(mk); return; }
+    if (studying) {
+      const c = coverAt(p);
+      if (c) { action = null; toggleReveal(c); return; }
+    }
     action = { pointerId: e.pointerId, type: e.pointerType };
 
     if (tool === 'pen' || tool === 'magic' || tool === 'hl') {
@@ -741,10 +759,13 @@ export function createEditor({ onSave, onClose, toast, askMark }) {
       } else if (b && p.x > b.x0 - 10 && p.x < b.x1 + 10 && p.y > b.y0 - 10 && p.y < b.y1 + 10) {
         startDrag(p);
       } else {
-        const hit = topItemAt(p.x, p.y, ['image', 'text', 'shape']);
+        const hit = topItemAt(p.x, p.y, ['image', 'text', 'shape', 'cover']);
         if (hit) { setSelection([hit]); startDrag(p); }
         else { setSelection([]); Object.assign(action, { kind: 'lasso', pts: [p] }); }
       }
+    } else if (tool === 'study') {
+      if (selected.length) setSelection([]);
+      Object.assign(action, { kind: 'rect', mode: S.studyMode, start: p, cur: p });
     } else if (tool === 'text') {
       const hit = topItemAt(p.x, p.y, ['text']);
       action = null;
@@ -801,6 +822,9 @@ export function createEditor({ onSave, onClose, toast, askMark }) {
     } else if (action.kind === 'lasso') {
       action.pts.push(toDoc(e.clientX, e.clientY));
       paintLive();
+    } else if (action.kind === 'rect') {
+      action.cur = toDoc(e.clientX, e.clientY);
+      paintLive();
     } else if (action.kind === 'drag') {
       const p = toDoc(e.clientX, e.clientY);
       const dx = p.x - action.start.x, dy = p.y - action.start.y;
@@ -819,6 +843,8 @@ export function createEditor({ onSave, onClose, toast, askMark }) {
       if (o.type === 'image') {
         const w = Math.max(40, o.w + (p.x - action.start.x));
         t = { ...o, w, h: w * o.h / o.w };
+      } else if (o.type === 'cover') {
+        t = { ...o, w: Math.max(24, o.w + (p.x - action.start.x)), h: Math.max(18, o.h + (p.y - action.start.y)) };
       } else {
         t = { ...o, w: Math.max(100, o.w + (p.x - action.start.x)) };
       }
@@ -850,6 +876,7 @@ export function createEditor({ onSave, onClose, toast, askMark }) {
     } else if (a.kind === 'drag') {
       if (a.moved) changed(); else { undoStack.pop(); updateUndoButtons(); }
     } else if (a.kind === 'resize') changed();
+    else if (a.kind === 'rect') finishRect(a);
     redraw();
   }
 
@@ -873,7 +900,7 @@ export function createEditor({ onSave, onClose, toast, askMark }) {
 
   function eraseAt(p) {
     const r = action.r;
-    const keep = items.filter(it => it.type === 'image' || it.type === 'text' || it.type === 'mark' || !hits(it, p.x, p.y, r));
+    const keep = items.filter(it => it.type === 'image' || it.type === 'text' || it.type === 'mark' || it.type === 'cover' || !hits(it, p.x, p.y, r));
     if (keep.length !== items.length) { items = keep; action.changed = true; redraw(); }
   }
 
@@ -1049,8 +1076,8 @@ export function createEditor({ onSave, onClose, toast, askMark }) {
       target = { s, ox: 48 - (pos.x - 40) * s, oy: 48 - (pos.y - 40) * s };
     }
     const it = id && items.find(x => x.id === id);
-    if (it) {
-      let b = it.type === 'mark' ? (it.region || { x0: it.x, y0: it.y, x1: layout === 'pages' ? PAGE_W - 40 : it.x + 500, y1: it.y + MARK_H }) : bounds(it);
+    if (it || pos.w) {
+      let b = !it ? { x0: pos.x, y0: pos.y, x1: pos.x + pos.w, y1: pos.y + pos.h } : it.type === 'mark' ? (it.region || { x0: it.x, y0: it.y, x1: layout === 'pages' ? PAGE_W - 40 : it.x + 500, y1: it.y + MARK_H }) : bounds(it);
       flash = { b, t0: performance.now() + (instant ? 150 : 300) };
       const loop = () => { paintLive(); if (flash) requestAnimationFrame(loop); };
       requestAnimationFrame(loop);
@@ -1134,6 +1161,166 @@ export function createEditor({ onSave, onClose, toast, askMark }) {
   $('#ix-close').onclick = () => toggleIndex(false);
   $('#ix-mark').onclick = addMarkHere;
 
+
+  // ---------- Estudio: tapar partes y crear tarjetas ----------
+  const studyBtn = $('#ed-study'), studyBar = $('#study-bar'), studyCount = $('#study-count');
+  const captureHint = $('#capture-hint');
+  let studying = false;
+  const revealed = new Set();
+  let captureCancel = null;
+
+  function subjectColor() {
+    const v = getComputedStyle(document.documentElement).getPropertyValue('--subject').trim();
+    return /^#[0-9a-f]{6}$/i.test(v) ? v : '#2D55E0';
+  }
+  function hexA(hex, a) {
+    const n = parseInt(hex.slice(1), 16);
+    return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`;
+  }
+  function normRect(a, b) {
+    return { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(b.x - a.x), h: Math.abs(b.y - a.y) };
+  }
+
+  // Bloques que tapan: los dibujados con la herramienta y, si se pide, lo resaltado.
+  function coverList() {
+    const list = items.filter(it => it.type === 'cover');
+    if (studying && S.coverHl) {
+      for (const it of items) {
+        if (it.type !== 'stroke' || it.tool !== 'hl') continue;
+        const b = bounds(it);
+        list.push({ id: it.id, type: 'cover', virtual: true, x: b.x0 + 2, y: b.y0 + 2, w: b.x1 - b.x0 - 4, h: b.y1 - b.y0 - 4 });
+      }
+    }
+    return list;
+  }
+
+  function coverAt(p) {
+    const list = coverList();
+    for (let i = list.length - 1; i >= 0; i--) {
+      const c = list[i];
+      if (p.x >= c.x && p.x <= c.x + c.w && p.y >= c.y && p.y <= c.y + c.h) return c;
+    }
+    return null;
+  }
+
+  function drawCovers(g, vx0, vy0, vx1, vy1) {
+    const col = subjectColor();
+    for (const c of coverList()) {
+      if (c.y + c.h < vy0 || c.y > vy1 || c.x + c.w < vx0 || c.x > vx1) continue;
+      const hidden = studying && !revealed.has(c.id);
+      const r = Math.min(10, c.w / 4, c.h / 4);
+      g.save();
+      g.beginPath();
+      g.roundRect(c.x, c.y, c.w, c.h, r);
+      if (hidden) {
+        g.fillStyle = col;
+        g.fill();
+        g.clip();
+        g.strokeStyle = 'rgba(255,255,255,0.16)';
+        g.lineWidth = 6;
+        g.beginPath();
+        for (let d = -c.h; d < c.w; d += 22) { g.moveTo(c.x + d, c.y + c.h); g.lineTo(c.x + d + c.h, c.y); }
+        g.stroke();
+        if (c.h > 26 && c.w > 26) {
+          const fs = Math.min(c.h * 0.55, 46);
+          g.fillStyle = 'rgba(255,255,255,0.92)';
+          g.font = `800 ${fs}px "Bricolage Grotesque", sans-serif`;
+          g.textAlign = 'center'; g.textBaseline = 'middle';
+          g.fillText('?', c.x + c.w / 2, c.y + c.h / 2 + fs * 0.04);
+        }
+      } else {
+        g.fillStyle = studying ? 'rgba(0,0,0,0)' : hexA(col, 0.10);
+        g.fill();
+        g.setLineDash([9 / view.s, 7 / view.s]);
+        g.lineWidth = 2 / view.s;
+        g.strokeStyle = hexA(col, studying ? 0.55 : 0.8);
+        g.stroke();
+      }
+      g.restore();
+    }
+  }
+
+  function toggleReveal(c) {
+    if (revealed.has(c.id)) revealed.delete(c.id); else revealed.add(c.id);
+    updateStudyBar();
+    redraw();
+  }
+
+  function updateStudyBar() {
+    const n = coverList().length;
+    const r = coverList().filter(c => revealed.has(c.id)).length;
+    studyCount.textContent = n ? `Destapadas ${r} de ${n}` : 'No hay partes tapadas';
+    $('#study-hl').checked = !!S.coverHl;
+  }
+
+  function toggleStudy(on = !studying) {
+    studying = on;
+    revealed.clear();
+    studyBtn.setAttribute('aria-pressed', String(on));
+    studyBar.hidden = !on;
+    stage.classList.toggle('studying', on);
+    if (on) {
+      finishText();
+      setSelection([]);
+      if (!ov.hidden) closeOverview();
+      if (!coverList().length) toast('Tapa partes con la herramienta Estudio, o activa “Tapar lo resaltado”.', { long: true });
+    }
+    updateStudyBar();
+    redraw();
+  }
+
+  // Imagen de una zona de la nota (tinta, imágenes y páginas de PDF), para una tarjeta.
+  function captureRegion(r) {
+    const pad = 8;
+    const x0 = r.x - pad, y0 = r.y - pad, bw = r.w + pad * 2, bh = r.h + pad * 2;
+    const k = Math.min(3, 1000 / bw, 1000 / bh);
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(bw * k)); c.height = Math.max(1, Math.round(bh * k));
+    const g = c.getContext('2d');
+    g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
+    g.scale(k, k); g.translate(-x0, -y0);
+    for (const it of items) {
+      if (it.type === 'mark' || it.type === 'cover') continue;
+      const b = bounds(it);
+      if (b.x1 < x0 || b.x0 > x0 + bw || b.y1 < y0 || b.y0 > y0 + bh) continue;
+      drawItem(g, it, () => {});
+    }
+    return c.toDataURL('image/jpeg', 0.88);
+  }
+
+  function finishRect(a) {
+    const r = normRect(a.start, a.cur);
+    if (r.w < 14 / view.s * 2 || r.h < 10 / view.s * 2) {
+      toast(a.mode === 'card' ? 'Arrastra un rectángulo sobre lo que va en la tarjeta.' : 'Arrastra un rectángulo sobre lo que quieres tapar.');
+      return;
+    }
+    if (a.mode === 'cover') {
+      pushUndo();
+      items.push({ id: uid(), type: 'cover', x: r.x, y: r.y, w: r.w, h: r.h });
+      changed();
+      return;
+    }
+    const img = captureRegion(r);
+    const ref = { x: r.x, y: r.y, w: r.w, h: r.h, page: layout === 'pages' ? pageOf(r.y) : null };
+    onCapture && onCapture({ img, ref });
+  }
+
+  function setCaptureHint(text, onCancel) {
+    captureCancel = onCancel || null;
+    captureHint.hidden = !text;
+    if (text) {
+      captureHint.querySelector('span').textContent = text;
+      if (S.tool !== 'study' || S.studyMode !== 'card') { S.studyMode = 'card'; setTool('study'); }
+    }
+  }
+  captureHint.querySelector('button').onclick = () => { const f = captureCancel; setCaptureHint(null); f && f(); };
+
+  studyBtn.onclick = () => toggleStudy();
+  $('#study-hide').onclick = () => { revealed.clear(); updateStudyBar(); redraw(); };
+  $('#study-show').onclick = () => { coverList().forEach(c => revealed.add(c.id)); updateStudyBar(); redraw(); };
+  $('#study-done').onclick = () => toggleStudy(false);
+  $('#study-hl').onchange = e => { S.coverHl = e.target.checked; saveSettings(S); revealed.clear(); updateStudyBar(); redraw(); };
+
   // ---------- Barra de herramientas ----------
   function setTool(t) {
     if (t === 'image') { pickImage(); return; }
@@ -1148,6 +1335,25 @@ export function createEditor({ onSave, onClose, toast, askMark }) {
     const t = S.tool === 'magic' ? 'pen' : S.tool;
     const sw = $('#swatches'), sz = $('#sizes');
     sw.innerHTML = ''; sz.innerHTML = '';
+    if (t === 'study') {
+      const seg = document.createElement('div');
+      seg.className = 'seg seg-tool';
+      seg.setAttribute('role', 'group');
+      seg.setAttribute('aria-label', 'Qué hacer con el rectángulo');
+      for (const [mode, label] of [['cover', 'Tapar'], ['card', 'Crear tarjeta']]) {
+        const b = document.createElement('button');
+        b.textContent = label;
+        b.setAttribute('aria-pressed', String(S.studyMode === mode));
+        b.onclick = () => { S.studyMode = mode; saveSettings(S); renderOptions(); };
+        seg.appendChild(b);
+      }
+      const hint = document.createElement('span');
+      hint.className = 'tool-hint';
+      hint.textContent = S.studyMode === 'card' ? 'Arrastra sobre la pregunta o la respuesta' : 'Arrastra sobre lo que quieres tapar';
+      sw.append(seg, hint);
+      $('#tool-options').hidden = false;
+      return;
+    }
     const colors = t === 'hl' ? HL_COLORS : (t === 'pen' || t === 'text') ? PEN_COLORS : null;
     if (colors) {
       for (const c of colors) {
@@ -1264,6 +1470,8 @@ export function createEditor({ onSave, onClose, toast, askMark }) {
       prevView = null; mmStale = true; ov.hidden = true;
       $('#add-page').hidden = layout !== 'pages';
       undoStack = []; redoStack = []; selected = []; dirty = false; action = null;
+      studying = false; revealed.clear(); studyBar.hidden = true; studyBtn.setAttribute('aria-pressed', 'false');
+      stage.classList.remove('studying'); captureHint.hidden = true;
       updateUndoButtons();
       updateFingerButton();
       setTool(S.tool === 'image' ? 'pen' : S.tool);
@@ -1286,6 +1494,8 @@ export function createEditor({ onSave, onClose, toast, askMark }) {
     get paper() { return paper; },
     get layout() { return layout; },
     get pageCount() { return pages; },
+    setCaptureHint,
+    get studying() { return studying; },
     get isEmpty() { return !items.length; },
     // Agrega páginas de un PDF importado (ya convertidas) al final de la nota.
     appendPdf(bgItems, count, replaceFirst) {
@@ -1300,7 +1510,7 @@ export function createEditor({ onSave, onClose, toast, askMark }) {
     addPage,
     save,
     get isOpen() { return !!note; },
-    deselect() { if (!ixPanel.hidden) { toggleIndex(false); return true; } if (!ov.hidden) { closeOverview(); redraw(); return true; } if (selected.length) { setSelection([]); return true; } if (editingText) { finishText(); return true; } return false; },
+    deselect() { if (!captureHint.hidden) { captureHint.querySelector('button').click(); return true; } if (studying) { toggleStudy(false); return true; } if (!ixPanel.hidden) { toggleIndex(false); return true; } if (!ov.hidden) { closeOverview(); redraw(); return true; } if (selected.length) { setSelection([]); return true; } if (editingText) { finishText(); return true; } return false; },
   };
 }
 

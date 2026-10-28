@@ -32,6 +32,9 @@
       <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></symbol>
       <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l7.5 3v5.5c0 4.6-3.2 8.3-7.5 9.5-4.3-1.2-7.5-4.9-7.5-9.5V6z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/><path d="M8.6 12.2l2.4 2.4 4.6-4.8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
       <symbol id="i-pdf" viewBox="0 0 24 24"><path d="M6 3.5h8l4 4v13H6z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/><path d="M12 10v6.5M9.2 13.8L12 16.6l2.8-2.8" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-study" viewBox="0 0 24 24"><rect x="6.5" y="3.5" width="14" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="3.5" y="8.5" width="14" height="11" rx="2" fill="var(--panel)" stroke="currentColor" stroke-width="1.9"/><path d="M8.6 12.3a1.9 1.9 0 113 1.5c-.6.4-1 .8-1 1.5M10.6 17.2v.1" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+      <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.9"/></symbol>
+      <symbol id="i-cards" viewBox="0 0 24 24"><rect x="3.5" y="6.5" width="13" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.9"/><path d="M7.5 3.5h11a2 2 0 012 2v12" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></symbol>
       <symbol id="i-page" viewBox="0 0 24 24"><path d="M6 3.5h8l4 4v13H6z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/><path d="M12 11v6M9 14h6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></symbol>
     </defs>
   </svg>
@@ -65,6 +68,7 @@
             <button data-view="notes" aria-pressed="true">Notas</button>
             <button data-view="index" aria-pressed="false"><svg><use href="#i-index"/></svg>Índice</button>
           </div>
+          <button class="secondary review-btn" id="review-btn" hidden><svg><use href="#i-cards"/></svg>Repasar<span class="badge" id="review-count"></span></button>
           <button class="secondary" id="import-pdf"><svg><use href="#i-pdf"/></svg>Importar PDF</button>
           <button class="primary" id="new-note"><svg><use href="#i-plus"/></svg>Nueva nota</button>
         </div>
@@ -81,6 +85,7 @@
       <div class="ed-actions">
         <button class="icon-btn" id="ed-undo" aria-label="Deshacer"><svg><use href="#i-undo"/></svg></button>
         <button class="icon-btn" id="ed-redo" aria-label="Rehacer"><svg><use href="#i-redo"/></svg></button>
+        <button class="chip-btn" id="ed-study" aria-pressed="false" title="Modo Estudiar: tapa las partes marcadas"><svg><use href="#i-eye"/></svg><span class="lbl">Estudiar</span></button>
         <button class="chip-btn" id="ed-index" aria-pressed="false" title="Índice y marcadores"><svg><use href="#i-index"/></svg><span class="lbl">Índice</span></button>
         <button class="chip-btn" id="ed-finger" aria-pressed="true"><svg><use href="#i-hand"/></svg><span class="lbl">Dedo dibuja</span></button>
         <button class="icon-btn" id="ed-more" aria-label="Más opciones"><svg><use href="#i-dots"/></svg></button>
@@ -95,6 +100,7 @@
         <button data-tool="select" aria-label="Seleccionar" title="Seleccionar y mover"><svg><use href="#i-lasso"/></svg></button>
         <button data-tool="text" aria-label="Texto" title="Escribir con teclado"><svg><use href="#i-text"/></svg></button>
         <button data-tool="image" aria-label="Insertar imagen" title="Insertar imagen"><svg><use href="#i-image"/></svg></button>
+        <button data-tool="study" aria-label="Estudio: tapar partes o crear tarjetas" title="Tapar partes o crear tarjetas"><svg><use href="#i-study"/></svg></button>
       </div>
       <div class="tool-options" id="tool-options">
         <div class="swatches" id="swatches"></div>
@@ -109,6 +115,14 @@
         <button data-act="dup">Duplicar</button>
         <button data-act="del" class="danger">Eliminar</button>
       </div>
+      <div class="study-bar" id="study-bar" hidden role="group" aria-label="Modo Estudiar">
+        <span class="study-count" id="study-count"></span>
+        <label class="study-check"><input type="checkbox" id="study-hl"><span class="long">Tapar lo resaltado</span><span class="short">Resaltado</span></label>
+        <button id="study-hide">Tapar todo</button>
+        <button id="study-show">Destapar todo</button>
+        <button id="study-done" class="study-done">Terminar</button>
+      </div>
+      <div class="capture-hint" id="capture-hint" hidden><span></span><button>Cancelar</button></div>
       <aside class="index-panel" id="index-panel" hidden aria-label="Índice de la nota">
         <div class="ix-head">
           <h2>Índice</h2>
@@ -139,6 +153,29 @@
       <button class="add-page" id="add-page"><svg><use href="#i-page"/></svg>Página</button>
     </div>
     <input type="file" id="img-input" accept="image/*" hidden>
+  </section>
+
+  <!-- Repaso de tarjetas -->
+  <section id="review" hidden aria-label="Repaso de tarjetas">
+    <header class="rv-top">
+      <button class="icon-btn" id="rv-close" aria-label="Terminar el repaso"><svg><use href="#i-close"/></svg></button>
+      <div class="rv-title"><b id="rv-subject"></b><span id="rv-progress"></span></div>
+      <button class="icon-btn" id="rv-more" aria-label="Eliminar esta tarjeta" title="Eliminar esta tarjeta"><svg><use href="#i-dots"/></svg></button>
+    </header>
+    <div class="rv-bar"><span id="rv-bar-fill"></span></div>
+    <main class="rv-stage" id="rv-stage">
+      <article class="rv-card" id="rv-card">
+        <div class="rv-side" id="rv-front"></div>
+        <div class="rv-divider" id="rv-divider" hidden></div>
+        <div class="rv-side" id="rv-back" hidden></div>
+        <button class="rv-source" id="rv-source">Ver en la nota: <span></span></button>
+      </article>
+    </main>
+    <footer class="rv-actions" id="rv-actions">
+      <button class="primary rv-show" id="rv-show">Mostrar respuesta</button>
+      <div class="rv-grades" id="rv-grades" hidden></div>
+    </footer>
+    <div class="rv-done" id="rv-done" hidden></div>
   </section>
 
   <dialog id="dlg"><form method="dialog" id="dlg-form"></form></dialog>

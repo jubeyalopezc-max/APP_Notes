@@ -211,6 +211,8 @@ export function bounds(it) {
     b = { x0: it.x, y0: it.y, x1: it.x + it.w, y1: it.y + it.h };
   } else if (it.type === 'mark') {
     b = { x0: it.x, y0: it.y, x1: it.x + MARK_W, y1: it.y + MARK_H };
+  } else if (it.type === 'cover') {
+    b = { x0: it.x, y0: it.y, x1: it.x + it.w, y1: it.y + it.h };
   } else if (it.type === 'text') {
     const lines = textLines(measureCtx, it);
     b = { x0: it.x, y0: it.y, x1: it.x + it.w, y1: it.y + lines.length * it.size * 1.3 };
@@ -220,6 +222,7 @@ export function bounds(it) {
 }
 
 export function drawItem(ctx, it, onImageLoad) {
+  if (it.type === 'cover') return; // los bloques para tapar los dibuja el editor según el modo
   if (it.type === 'mark') {
     ctx.fillStyle = it.color;
     ctx.fill(markPath(it));
@@ -264,7 +267,7 @@ export function drawItem(ctx, it, onImageLoad) {
 export function hits(it, x, y, r) {
   const b = bounds(it);
   if (x < b.x0 - r || x > b.x1 + r || y < b.y0 - r || y > b.y1 + r) return false;
-  if (it.type === 'image' || it.type === 'text' || it.type === 'mark') return true;
+  if (it.type === 'image' || it.type === 'text' || it.type === 'mark' || it.type === 'cover') return true;
   const segD = (ax, ay, bx, by) => {
     const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
     let t = l2 ? ((x - ax) * dx + (y - ay) * dy) / l2 : 0;

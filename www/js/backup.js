@@ -14,8 +14,8 @@ function setInfo(patch) {
 }
 
 export async function buildBackup() {
-  const [subjects, notes, contents] = await Promise.all([db.all('subjects'), db.all('notes'), db.all('contents')]);
-  const data = { app: 'NotesPro', version: 1, createdAt: Date.now(), subjects, notes, contents };
+  const [subjects, notes, contents, cards] = await Promise.all([db.all('subjects'), db.all('notes'), db.all('contents'), db.all('cards')]);
+  const data = { app: 'NotesPro', version: 2, createdAt: Date.now(), subjects, notes, contents, cards };
   return { blob: new Blob([JSON.stringify(data)], { type: 'application/octet-stream' }), subjects: subjects.length, notes: notes.length };
 }
 
@@ -80,5 +80,13 @@ export async function restoreBackup(data) {
     await db.put('contents', contentById.get(n.id) || { id: n.id, items: [], pages: 1 });
     mine ? updated++ : added++;
   }
-  return { added, updated, newSubjects };
+  // Tarjetas de estudio (copias de la versión 2 en adelante): se agregan las que faltan.
+  let cards = 0;
+  const mineCards = new Set((await db.all('cards')).map(c => c.id));
+  for (const c of data.cards || []) {
+    if (mineCards.has(c.id)) continue;
+    await db.put('cards', c);
+    cards++;
+  }
+  return { added, updated, newSubjects, cards };
 }

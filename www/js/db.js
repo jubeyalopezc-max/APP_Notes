@@ -2,7 +2,7 @@
 // subjects: materias · notes: datos de cada nota (sin el contenido) · contents: trazos, imágenes y texto de cada nota
 
 const DB_NAME = 'notespro';
-const DB_VERSION = 1;
+const DB_VERSION = 2; // 2: tarjetas de estudio
 let dbPromise = null;
 
 function open() {
@@ -17,6 +17,10 @@ function open() {
         s.createIndex('subjectId', 'subjectId');
       }
       if (!db.objectStoreNames.contains('contents')) db.createObjectStore('contents', { keyPath: 'id' });
+      if (!db.objectStoreNames.contains('cards')) {
+        const c = db.createObjectStore('cards', { keyPath: 'id' });
+        c.createIndex('noteId', 'noteId');
+      }
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);

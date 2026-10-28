@@ -3,6 +3,8 @@ import { createEditor, PAPERS } from './editor.js';
 import { exportPdf, safeFileName } from './export.js';
 import { PAGE_H, PAGE_GAP } from './render.js';
 import { shareFile, saveToDevice, isNative, DEVICE_FOLDER } from './files.js';
+import { createReview } from './review.js';
+import { newSrs, isDue } from './srs.js';
 import { buildBackup, backupFileName, backupInfo, markManualBackup, autoBackup, setAutoBackup, readBackup, restoreBackup } from './backup.js';
 
 const $ = s => document.querySelector(s);
@@ -10,7 +12,7 @@ const SUBJECT_COLORS = ['#2D55E0', '#12968A', '#D9442F', '#E7A21A', '#7A4BD6', '
 
 const MARK_COLORS = ['#D9442F', '#2D55E0', '#1E9E5A', '#E7A21A', '#7A4BD6'];
 
-const state = { subjects: [], notes: [], current: 'all', query: '', view: 'notes' };
+const state = { subjects: [], notes: [], cards: [], current: 'all', query: '', view: 'notes' };
 
 // ---------- Avisos ----------
 let toastTimer;
@@ -49,7 +51,7 @@ dlg.addEventListener('close', () => {
   const r = dlgResolve; dlgResolve = null;
   if (!r) return;
   if (dlg.returnValue === 'ok') r(Object.fromEntries(new FormData(form)));
-  else r(dlg.returnValue && dlg.returnValue !== 'cancel' ? { action: dlg.returnValue } : null);
+  else r(dlg.returnValue && dlg.returnValue !== 'cancel' ? { ...Object.fromEntries(new FormData(form)), action: dlg.returnValue } : null);
 });
 form.addEventListener('keydown', e => {
   // Enter en un campo de texto confirma (no cancela).
@@ -96,9 +98,10 @@ async function askMark({ isNew, title, color, snap }) {
 
 // ---------- Datos ----------
 async function load() {
-  const [subjects, notes] = await Promise.all([db.all('subjects'), db.all('notes')]);
+  const [subjects, notes, cards] = await Promise.all([db.all('subjects'), db.all('notes'), db.all('cards')]);
   state.subjects = subjects.sort((a, b) => a.createdAt - b.createdAt);
   state.notes = notes;
+  state.cards = cards;
 }
 
 // ---------- Inicio ----------
@@ -243,7 +246,7 @@ function renderIndexView(list, q) {
   }
 }
 
-function render() { renderRail(); renderNotes(); renderBanner(); }
+function render() { renderRail(); renderNotes(); renderBanner(); renderReviewBtn(); }
 
 async function newSubject() {
   const r = await dialog(`<h2>Nueva materia</h2>
@@ -329,9 +332,12 @@ async function noteMenu(n) {
     await db.put('notes', n);
     render();
   } else if (act === 'del') {
-    if (!await confirmDialog(`¿Eliminar “${n.title}”?`, 'La nota y todo lo que tiene se borran de este dispositivo.', 'Eliminar nota')) return;
+    const nc = state.cards.filter(c => c.noteId === n.id);
+    if (!await confirmDialog(`¿Eliminar “${n.title}”?`, `La nota y todo lo que tiene se borran de este dispositivo${nc.length ? `, también sus ${nc.length} tarjeta${nc.length === 1 ? '' : 's'} de estudio` : ''}.`, 'Eliminar nota')) return;
     await db.del('notes', n.id);
     await db.del('contents', n.id);
+    for (const c of nc) await db.del('cards', c.id);
+    state.cards = state.cards.filter(c => c.noteId !== n.id);
     state.notes = state.notes.filter(x => x.id !== n.id);
     render();
   }
@@ -352,6 +358,7 @@ let openMeta = null;
 const editor = createEditor({
   toast,
   askMark,
+  onCapture: captureForCard,
   onSave: async (meta, content, thumb, outline) => {
     meta.updatedAt = Date.now();
     meta.thumb = thumb;
@@ -374,6 +381,8 @@ async function openNote(n, focus) {
 }
 
 async function closeEditor() {
+  cardDraft = null;
+  editor.setCaptureHint(null);
   await editor.close();
   openMeta = null;
   $('#editor').hidden = true;
@@ -385,11 +394,12 @@ async function editorMore() {
   const act = await dialog(`<h2>Opciones de la nota</h2>
     <div class="field">Fondo<div class="paper-pick">${Object.entries(PAPERS).map(([k, v]) =>
       `<label><input type="radio" name="paper" value="${k}" ${editor.paper === k ? 'checked' : ''}><span class="paper-swatch ${k}"></span>${v}</label>`).join('')}</div></div>
-    <div class="menu-list"><button value="all">Ver toda la nota</button>${editor.layout === 'pages' ? '<button value="page">Agregar página al final</button>' : ''}<button value="rename">Cambiar título</button><button value="pdf">Exportar a PDF</button><button value="addpdf">Agregar páginas de un PDF</button></div>
+    <div class="menu-list"><button value="all">Ver toda la nota</button>${editor.layout === 'pages' ? '<button value="page">Agregar página al final</button>' : ''}<button value="rename">Cambiar título</button><button value="pdf">Exportar a PDF</button><button value="addpdf">Agregar páginas de un PDF</button>${state.cards.some(c => c.noteId === openMeta.id) ? '<button value="review">Repasar las tarjetas de esta nota</button>' : ''}</div>
     <div class="dlg-actions"><button value="cancel" class="ghost">Cerrar</button><button value="ok" class="primary">Aplicar fondo</button></div>`);
   if (!act) return;
   if (act.action === 'pdf') { await editor.save(); exportNotesPdf([openMeta]); }
   else if (act.action === 'addpdf') pickPdf('append');
+  else if (act.action === 'review') { await editor.save(); startReview(state.cards.filter(c => c.noteId === openMeta.id), openMeta.title); }
   else if (act.action === 'all') editor.showAll();
   else if (act.action === 'page') editor.addPage();
   else if (act.action === 'rename') renameNote(openMeta);
@@ -518,6 +528,102 @@ $('#pdf-input').addEventListener('change', async e => {
   });
 });
 
+// ---------- Tarjetas de estudio ----------
+let cardDraft = null;
+
+async function captureForCard({ img, ref }) {
+  if (!openMeta) return;
+  if (cardDraft) {
+    // Segunda captura: completa la tarjeta.
+    const d = cardDraft;
+    cardDraft = null;
+    editor.setCaptureHint(null);
+    const card = d.side === 'front'
+      ? { front: { img: d.img }, back: { img }, ref: d.ref }
+      : { front: { img }, back: { img: d.img }, ref };
+    await saveCard(card);
+    return;
+  }
+  const r = await dialog(`<h2>Nueva tarjeta</h2>
+    <img class="card-capture" src="${img}" alt="Lo que marcaste">
+    <div class="field">Lo que marcaste es la…<div class="seg seg-form" role="radiogroup">
+      <label><input type="radio" name="side" value="front" checked>Pregunta</label>
+      <label><input type="radio" name="side" value="back">Respuesta</label>
+    </div></div>
+    <label class="field"><span id="other-label">Respuesta (opcional)</span><textarea name="text" maxlength="600" placeholder="Escríbela aquí, o márcala en la nota"></textarea></label>
+    <button value="other" class="link-btn" id="other-btn">Marcar la respuesta en la nota</button>
+    <div class="dlg-actions">
+      <button value="cancel" class="ghost">Cancelar</button>
+      <button value="ok" class="primary">Guardar tarjeta</button>
+    </div>`, {
+    onOpen: f => {
+      const upd = () => {
+        const front = f.querySelector('input[name=side]:checked').value === 'front';
+        f.querySelector('#other-label').textContent = front ? 'Respuesta (opcional)' : 'Pregunta';
+        f.querySelector('#other-btn').textContent = front ? 'Marcar la respuesta en la nota' : 'Marcar la pregunta en la nota';
+        f.querySelector('textarea').placeholder = front ? 'Escríbela aquí, o márcala en la nota' : 'Escribe la pregunta, o márcala en la nota';
+      };
+      f.querySelectorAll('input[name=side]').forEach(i => i.onchange = upd);
+    },
+  });
+  if (!r) return;
+  const side = r.side || 'front';
+  const text = (r.text || '').trim();
+  if (r.action === 'other' || (side === 'back' && !text)) {
+    cardDraft = { side, img, ref };
+    editor.setCaptureHint(side === 'front' ? 'Ahora arrastra un rectángulo sobre la respuesta' : 'Ahora arrastra un rectángulo sobre la pregunta',
+      () => { cardDraft = null; toast('Tarjeta descartada'); });
+    return;
+  }
+  const other = text ? { text } : {};
+  await saveCard(side === 'front' ? { front: { img }, back: other, ref } : { front: other, back: { img }, ref });
+}
+
+async function saveCard(c) {
+  const card = { id: uid(), noteId: openMeta.id, front: c.front, back: c.back, ref: c.ref, createdAt: Date.now(), srs: newSrs() };
+  await db.put('cards', card);
+  state.cards.push(card);
+  const n = state.cards.filter(x => x.noteId === openMeta.id).length;
+  toast(`Tarjeta creada. Esta nota tiene ${n} tarjeta${n === 1 ? '' : 's'}.`);
+}
+
+// Tarjetas del grupo que se ve en el inicio (materia actual, sin materia o todas).
+function cardsForView() {
+  const noteIds = new Set(state.notes.filter(n =>
+    state.current === 'all' ? true
+      : state.current === 'none' ? (!n.subjectId || !state.subjects.some(s => s.id === n.subjectId))
+        : n.subjectId === state.current).map(n => n.id));
+  return state.cards.filter(c => noteIds.has(c.noteId));
+}
+
+function renderReviewBtn() {
+  const cards = cardsForView();
+  const b = $('#review-btn');
+  b.hidden = !cards.length;
+  const due = cards.filter(c => isDue(c.srs)).length;
+  $('#review-count').textContent = due ? String(due) : '';
+  b.title = due ? `${due} tarjeta${due === 1 ? '' : 's'} para repasar hoy` : 'No tienes tarjetas pendientes hoy';
+}
+
+function startReview(cards, title) {
+  review.start({ cards, notes: new Map(state.notes.map(n => [n.id, n])), title });
+}
+
+const review = createReview({
+  toast,
+  onChanged: () => { if (!$('#home').hidden) renderReviewBtn(); },
+  onOpenSource: card => {
+    const n = state.notes.find(x => x.id === card.noteId);
+    if (n) openNote(n, card.ref ? { ...card.ref } : null);
+  },
+  confirmDelete: () => confirmDialog('¿Eliminar esta tarjeta?', 'Se borra solo la tarjeta; la nota queda igual.', 'Eliminar tarjeta'),
+});
+
+$('#review-btn').onclick = () => {
+  const sub = currentSubject();
+  startReview(cardsForView(), state.current === 'all' ? 'Todas las materias' : state.current === 'none' ? 'Sin materia' : sub ? sub.name : '');
+};
+
 // ---------- Copia de seguridad ----------
 function sinceText(t) {
   if (!t) return null;
@@ -586,6 +692,7 @@ $('#restore-input').addEventListener('change', async e => {
     const parts = [];
     if (r.added) parts.push(`${r.added} nota${r.added === 1 ? '' : 's'} agregada${r.added === 1 ? '' : 's'}`);
     if (r.updated) parts.push(`${r.updated} actualizada${r.updated === 1 ? '' : 's'}`);
+    if (r.cards) parts.push(`${r.cards} tarjeta${r.cards === 1 ? '' : 's'} de estudio`);
     toast(parts.length ? `Copia restaurada: ${parts.join(', ')}.` : 'Ya tenías todo lo que hay en esa copia.', { long: true });
   });
 });
@@ -632,6 +739,7 @@ const CapApp = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.
 if (CapApp) {
   CapApp.addListener('backButton', () => {
     if (dlg.open) { dlg.close('cancel'); return; }
+    if (review.isOpen) { review.close(); return; }
     if (editor.isOpen) { if (!editor.deselect()) closeEditor(); return; }
     if (state.current !== 'all') { state.current = 'all'; render(); return; }
     CapApp.exitApp();
