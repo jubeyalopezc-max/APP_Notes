@@ -1,5 +1,14 @@
 apply plugin: 'com.android.application'
 
+// Datos que llegan desde la compilación en GitHub (si no están, se usan valores por defecto).
+def envOr = { String key, String fallback ->
+    def v = System.getenv(key)
+    return (v == null || v.trim().isEmpty()) ? fallback : v.trim()
+}
+def buildNumber = Integer.parseInt(envOr("NOTESPRO_VERSION_CODE", "1"))
+def keystorePath = envOr("NOTESPRO_KEYSTORE", "")
+def hasKeystore = !keystorePath.isEmpty() && new File(keystorePath).exists()
+
 android {
     namespace = "com.notespro.app"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -7,8 +16,8 @@ android {
         applicationId "com.notespro.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode (System.getenv("NOTESPRO_VERSION_CODE") ?: "1").toInteger()
-        versionName "1.0." + (System.getenv("NOTESPRO_VERSION_CODE") ?: "1")
+        versionCode = buildNumber
+        versionName = "1.0." + buildNumber
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -18,19 +27,18 @@ android {
     }
     signingConfigs {
         release {
-            def ks = System.getenv("NOTESPRO_KEYSTORE")
-            if (ks != null && file(ks).exists()) {
-                storeFile file(ks)
-                storePassword System.getenv("NOTESPRO_KEYSTORE_PASSWORD")
-                keyAlias System.getenv("NOTESPRO_KEY_ALIAS")
-                keyPassword System.getenv("NOTESPRO_KEY_PASSWORD")
+            if (hasKeystore) {
+                storeFile = new File(keystorePath)
+                storePassword = envOr("NOTESPRO_KEYSTORE_PASSWORD", "")
+                keyAlias = envOr("NOTESPRO_KEY_ALIAS", "notespro")
+                keyPassword = envOr("NOTESPRO_KEY_PASSWORD", envOr("NOTESPRO_KEYSTORE_PASSWORD", ""))
             }
         }
     }
     buildTypes {
         release {
-            if (System.getenv("NOTESPRO_KEYSTORE") != null) {
-                signingConfig signingConfigs.release
+            if (hasKeystore) {
+                signingConfig = signingConfigs.release
             }
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
