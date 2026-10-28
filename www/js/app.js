@@ -1,5 +1,8 @@
 import { db, uid, persist } from './db.js';
 import { createEditor, PAPERS } from './editor.js';
+import { exportPdf, safeFileName } from './export.js';
+import { shareFile, saveToDevice, isNative, DEVICE_FOLDER } from './files.js';
+import { buildBackup, backupFileName, backupInfo, markManualBackup, autoBackup, setAutoBackup, readBackup, restoreBackup } from './backup.js';
 
 const $ = s => document.querySelector(s);
 const SUBJECT_COLORS = ['#2D55E0', '#12968A', '#D9442F', '#E7A21A', '#7A4BD6', '#1E9E5A', '#D23D86', '#46566F'];
@@ -10,12 +13,20 @@ const state = { subjects: [], notes: [], current: 'all', query: '', view: 'notes
 
 // ---------- Avisos ----------
 let toastTimer;
-function toast(msg) {
+function toast(msg, { sticky = false, long = false } = {}) {
   const t = $('#toast');
   t.textContent = msg;
   t.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.remove('show'), 2600);
+  if (!sticky) toastTimer = setTimeout(() => t.classList.remove('show'), long ? 5200 : 2600);
+}
+
+let busy = false;
+async function withBusy(fn) {
+  if (busy) { toast('Espera a que termine lo que se está guardando.'); return; }
+  busy = true;
+  try { return await fn(); }
+  finally { busy = false; }
 }
 
 // ---------- Diálogos ----------
@@ -230,7 +241,7 @@ function renderIndexView(list, q) {
   }
 }
 
-function render() { renderRail(); renderNotes(); }
+function render() { renderRail(); renderNotes(); renderBanner(); }
 
 async function newSubject() {
   const r = await dialog(`<h2>Nueva materia</h2>
@@ -249,10 +260,12 @@ async function subjectMenu() {
   const s = currentSubject();
   if (!s) return;
   const act = await menu(s.name, [
+    { value: 'pdf', label: 'Exportar la materia a PDF' },
     { value: 'edit', label: 'Cambiar nombre o color' },
     { value: 'del', label: 'Eliminar materia', danger: true },
   ]);
-  if (act === 'edit') {
+  if (act === 'pdf') exportSubjectPdf(s);
+  else if (act === 'edit') {
     const r = await dialog(`<h2>Editar materia</h2>
       <label class="field">Nombre<input type="text" name="name" required maxlength="40" value="${esc(s.name)}"></label>
       <div class="field">Color${colorPicker(s.color)}</div>${buttons('Guardar')}`);
@@ -298,11 +311,13 @@ async function newNote() {
 
 async function noteMenu(n) {
   const act = await menu(n.title, [
+    { value: 'pdf', label: 'Exportar a PDF' },
     { value: 'rename', label: 'Cambiar título' },
     { value: 'move', label: 'Mover a otra materia' },
     { value: 'del', label: 'Eliminar nota', danger: true },
   ]);
-  if (act === 'rename') renameNote(n);
+  if (act === 'pdf') exportNotesPdf([n]);
+  else if (act === 'rename') renameNote(n);
   else if (act === 'move') {
     const r = await dialog(`<h2>Mover nota</h2>
       <label class="field">Materia<select name="subjectId"><option value="">Sin materia</option>${state.subjects.map(s =>
@@ -368,14 +383,148 @@ async function editorMore() {
   const act = await dialog(`<h2>Opciones de la nota</h2>
     <div class="field">Fondo<div class="paper-pick">${Object.entries(PAPERS).map(([k, v]) =>
       `<label><input type="radio" name="paper" value="${k}" ${editor.paper === k ? 'checked' : ''}><span class="paper-swatch ${k}"></span>${v}</label>`).join('')}</div></div>
-    <div class="menu-list"><button value="all">Ver toda la nota</button>${editor.layout === 'pages' ? '<button value="page">Agregar página al final</button>' : ''}<button value="rename">Cambiar título</button></div>
+    <div class="menu-list"><button value="all">Ver toda la nota</button>${editor.layout === 'pages' ? '<button value="page">Agregar página al final</button>' : ''}<button value="rename">Cambiar título</button><button value="pdf">Exportar a PDF</button></div>
     <div class="dlg-actions"><button value="cancel" class="ghost">Cerrar</button><button value="ok" class="primary">Aplicar fondo</button></div>`);
   if (!act) return;
-  if (act.action === 'all') editor.showAll();
+  if (act.action === 'pdf') { await editor.save(); exportNotesPdf([openMeta]); }
+  else if (act.action === 'all') editor.showAll();
   else if (act.action === 'page') editor.addPage();
   else if (act.action === 'rename') renameNote(openMeta);
   else if (act.paper && act.paper !== editor.paper) editor.setPaper(act.paper);
 }
+
+// ---------- PDF ----------
+async function deliver(blob, filename, what) {
+  const saved = await saveToDevice(blob, filename);
+  toast(saved ? `${what} guardado en ${DEVICE_FOLDER}. Elige dónde enviarlo.` : `${what} listo.`, { long: true });
+  await shareFile(blob, filename);
+}
+
+async function makePdf(list, opts) {
+  const content = await Promise.all(list.map(m => db.get('contents', m.id)));
+  return exportPdf(list.map((meta, i) => ({ meta, content: content[i] })), {
+    ...opts,
+    onProgress: (d, t) => toast(t > 1 ? `Creando el PDF: página ${d} de ${t}` : 'Creando el PDF…', { sticky: true }),
+  });
+}
+
+function exportNotesPdf(list) {
+  return withBusy(async () => {
+    try {
+      toast('Creando el PDF…', { sticky: true });
+      const blob = await makePdf(list, { title: list[0].title });
+      await deliver(blob, safeFileName(list[0].title) + '.pdf', 'PDF');
+    } catch (e) {
+      console.error(e);
+      toast('No se pudo crear el PDF. Inténtalo de nuevo.', { long: true });
+    }
+  });
+}
+
+function exportSubjectPdf(s) {
+  const list = state.notes.filter(n => n.subjectId === s.id).sort((a, b) => a.createdAt - b.createdAt);
+  if (!list.length) { toast('Esta materia todavía no tiene notas.'); return; }
+  return withBusy(async () => {
+    try {
+      toast('Creando el PDF…', { sticky: true });
+      const blob = await makePdf(list, { title: s.name, subject: s });
+      await deliver(blob, safeFileName(s.name) + '.pdf', 'PDF');
+    } catch (e) {
+      console.error(e);
+      toast('No se pudo crear el PDF. Inténtalo de nuevo.', { long: true });
+    }
+  });
+}
+
+// ---------- Copia de seguridad ----------
+function sinceText(t) {
+  if (!t) return null;
+  const d = Math.floor((Date.now() - t) / 86400000);
+  if (d < 1) return 'hoy';
+  if (d === 1) return 'ayer';
+  return `hace ${d} días`;
+}
+
+async function backupDialog() {
+  const info = backupInfo();
+  const manual = sinceText(info.manual), auto = sinceText(info.auto);
+  const status = manual ? `Tu última copia fue ${manual}.` : 'Todavía no has hecho ninguna copia.';
+  const r = await dialog(`<h2>Copia de seguridad</h2>
+    <p class="dlg-text">${status} Tus notas solo están guardadas en esta tablet: si se borra la app o se daña el equipo, se pierden. Con una copia en Google Drive o en tu correo las recuperas.</p>
+    <div class="menu-list">
+      <button value="backup"><span>Hacer copia ahora</span><small>Crea un archivo con todas tus notas y te deja enviarlo a Google Drive, tu correo o WhatsApp.</small></button>
+      <button value="restore"><span>Restaurar desde un archivo</span><small>Agrega las notas de una copia. No borra nada de lo que ya tienes.</small></button>
+    </div>
+    ${isNative ? `<label class="check"><input type="checkbox" name="auto" ${info.autoOff ? '' : 'checked'}><span>Copia automática diaria en ${DEVICE_FOLDER}${auto ? ` (la última fue ${auto})` : ''}. Se guardan las de los últimos 7 días.</span></label>` : ''}
+    <div class="dlg-actions"><button value="ok" class="ghost">Cerrar</button></div>`, {
+    onOpen: f => {
+      const c = f.querySelector('input[name=auto]');
+      if (c) c.onchange = () => setAutoBackup(c.checked);
+    },
+  });
+  if (!r) return;
+  if (r.action === 'backup') makeBackup();
+  else if (r.action === 'restore') { const i = $('#restore-input'); i.value = ''; i.click(); }
+}
+
+function makeBackup() {
+  return withBusy(async () => {
+    try {
+      toast('Preparando la copia…', { sticky: true });
+      const { blob, notes } = await buildBackup();
+      if (!notes) { toast('Todavía no hay notas para respaldar.'); return; }
+      const name = backupFileName();
+      await saveToDevice(blob, name);
+      toast('Elige dónde guardar la copia: Google Drive, tu correo o WhatsApp.', { long: true });
+      const res = await shareFile(blob, name);
+      if (res !== 'cancelled') { markManualBackup(); renderBanner(); }
+    } catch (e) {
+      console.error(e);
+      toast('No se pudo crear la copia. Inténtalo de nuevo.', { long: true });
+    }
+  });
+}
+
+$('#restore-input').addEventListener('change', async e => {
+  const f = e.target.files && e.target.files[0];
+  if (!f) return;
+  let data;
+  try { data = await readBackup(f); }
+  catch (err) { toast(err.message, { long: true }); return; }
+  const when = new Date(data.createdAt).toLocaleDateString('es-CO', { day: 'numeric', month: 'long', year: 'numeric' });
+  const ok = await dialog(`<h2>Restaurar copia</h2>
+    <p class="dlg-text">Copia del ${esc(when)}: ${data.subjects.length} materia${data.subjects.length === 1 ? '' : 's'} y ${data.notes.length} nota${data.notes.length === 1 ? '' : 's'}.</p>
+    <p class="dlg-text">Se agregan las notas que no tienes y se actualizan las que en la copia son más recientes. No se borra nada.</p>
+    ${buttons('Restaurar')}`);
+  if (!ok) return;
+  await withBusy(async () => {
+    const r = await restoreBackup(data);
+    await load();
+    render();
+    const parts = [];
+    if (r.added) parts.push(`${r.added} nota${r.added === 1 ? '' : 's'} agregada${r.added === 1 ? '' : 's'}`);
+    if (r.updated) parts.push(`${r.updated} actualizada${r.updated === 1 ? '' : 's'}`);
+    toast(parts.length ? `Copia restaurada: ${parts.join(', ')}.` : 'Ya tenías todo lo que hay en esa copia.', { long: true });
+  });
+});
+
+// Aviso en el inicio cuando hace rato no hay una copia fuera de la tablet.
+function renderBanner() {
+  const b = $('#backup-banner');
+  const info = backupInfo();
+  const days = info.manual ? Math.floor((Date.now() - info.manual) / 86400000) : null;
+  const snoozed = info.snooze && Date.now() < info.snooze;
+  const show = state.notes.length >= 3 && !snoozed && (days === null || days >= 14);
+  b.hidden = !show;
+  if (show) b.querySelector('p').textContent = days === null
+    ? 'Todavía no tienes una copia de tus notas fuera de esta tablet.'
+    : `Tu última copia de seguridad fue hace ${days} días.`;
+}
+$('#backup-banner .primary').onclick = makeBackup;
+$('#backup-banner .ghost').onclick = () => {
+  try { localStorage.setItem('np-backup', JSON.stringify({ ...backupInfo(), snooze: Date.now() + 3 * 86400000 })); } catch {}
+  renderBanner();
+};
 
 // ---------- Eventos ----------
 $('#home').addEventListener('click', e => {
@@ -383,6 +532,7 @@ $('#home').addEventListener('click', e => {
   if (sp) { state.current = sp.dataset.subject; state.query = ''; $('#search').value = ''; render(); }
 });
 $('#add-subject').onclick = newSubject;
+$('#backup-btn').onclick = backupDialog;
 document.querySelectorAll('.seg [data-view]').forEach(b => b.addEventListener('click', () => { state.view = b.dataset.view; renderNotes(); }));
 $('#subject-menu').onclick = subjectMenu;
 $('#new-note').onclick = newNote;
@@ -404,6 +554,7 @@ if (CapApp) {
     CapApp.exitApp();
   });
   CapApp.addListener('pause', () => { if (editor.isOpen) editor.save(); });
+  CapApp.addListener('resume', () => { autoBackup().catch(() => {}); });
 }
 
 (async function start() {
@@ -411,4 +562,6 @@ if (CapApp) {
   await load();
   render();
   if (document.fonts) document.fonts.load('16px "Atkinson Hyperlegible"');
+  // La copia automática se hace un poco después de abrir, para no demorar el inicio.
+  setTimeout(() => autoBackup().catch(() => {}), 4000);
 })();

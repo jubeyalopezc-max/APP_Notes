@@ -17,6 +17,9 @@ App de notas para la universidad, hecha para tablets Android con lápiz óptico.
 - **Índice automático** de cada nota (títulos, subtítulos, marcadores e imágenes por página) y de cada materia, nota por nota
 - La búsqueda encuentra notas por su título o por los títulos y marcadores que tienen dentro
 - Deshacer con dos dedos; todo se guarda en la tablet, sin internet
+- **Copia de seguridad**: un archivo `.notespro` con todas las notas para enviar a Google Drive, correo o WhatsApp;
+  copia automática diaria en `Documentos/NotesPro` (últimos 7 días) y restauración que no borra nada
+- **Exportar a PDF** una nota o una materia completa (con portada); el índice de la app se vuelve los marcadores del PDF
 
 ## Descargar el APK
 

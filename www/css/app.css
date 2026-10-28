@@ -248,6 +248,27 @@ svg { width: 22px; height: 22px; flex: none; }
 .ov-add { display: grid; place-items: center; aspect-ratio: 1000 / 1414; border: 2px dashed var(--line); border-radius: 6px; color: var(--muted); font-weight: 700; gap: 6px; align-content: center; }
 .ov-add:hover { border-color: var(--muted); color: var(--ink); }
 
+/* ---------- Copia de seguridad ---------- */
+.rail-backup {
+  display: flex; align-items: center; gap: 10px; margin: auto 14px 0 16px; padding: 0 10px; height: 46px;
+  border-radius: 12px; color: var(--muted); font-weight: 700; flex: none;
+}
+.rail-backup:hover { background: var(--raised); color: var(--ink); }
+.rail-backup svg { width: 20px; height: 20px; }
+.backup-banner {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 12px 10px 16px;
+  background: color-mix(in srgb, var(--marker) 26%, var(--panel)); border: 1px solid color-mix(in srgb, #E0A400 45%, var(--line));
+  border-radius: 16px;
+}
+.backup-banner svg { color: #8A6400; }
+.backup-banner p { flex: 1; min-width: 180px; margin: 0; font-weight: 700; }
+.backup-banner .primary { height: 40px; border-radius: 12px; }
+.backup-banner .ghost { height: 40px; }
+.menu-list button:has(small) { display: flex; flex-direction: column; justify-content: center; gap: 2px; height: auto; padding: 10px 12px; }
+.menu-list button small { font-weight: 400; color: var(--muted); font-size: 14px; line-height: 1.35; }
+.check { display: flex; gap: 10px; align-items: flex-start; margin: 4px 0 10px; font-size: 14px; color: var(--muted); line-height: 1.4; cursor: pointer; }
+.check input { width: 20px; height: 20px; margin: 1px 0 0; accent-color: var(--accent); flex: none; }
+
 /* ---------- Índice de la nota ---------- */
 .index-panel {
   position: absolute; top: 0; right: 0; bottom: 0; z-index: 3; width: 340px;
@@ -377,6 +398,7 @@ dialog h2 { margin: 0 0 16px; font: 800 24px/1.15 var(--display); letter-spacing
   .spine[aria-current="true"]::before { width: 5px; }
   .count { display: none; }
   .add-subject { margin: 0; flex: none; height: 40px; }
+  .rail-backup { margin: 0; height: 40px; }
   .lib-head { padding: 18px 16px 12px; }
   .notes { padding: 4px 16px calc(32px + var(--safe-b)); grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 20px 14px; }
   .chip-btn .lbl { display: none; }

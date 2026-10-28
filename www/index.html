@@ -30,6 +30,7 @@
       <symbol id="i-index" viewBox="0 0 24 24"><path d="M9 6.5h11M9 12h11M9 17.5h7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M3.5 4h3v5l-1.5-1.3L3.5 9z" fill="currentColor"/><path d="M4 12h1M4 17.5h1" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></symbol>
       <symbol id="i-mark" viewBox="0 0 24 24"><path d="M6.5 3.5h11v17l-5.5-4.2-5.5 4.2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
       <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></symbol>
+      <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l7.5 3v5.5c0 4.6-3.2 8.3-7.5 9.5-4.3-1.2-7.5-4.9-7.5-9.5V6z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/><path d="M8.6 12.2l2.4 2.4 4.6-4.8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
       <symbol id="i-page" viewBox="0 0 24 24"><path d="M6 3.5h8l4 4v13H6z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/><path d="M12 11v6M9 14h6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></symbol>
     </defs>
   </svg>
@@ -41,9 +42,17 @@
       <button class="spine all" data-subject="all"><span class="spine-name">Todas las notas</span><span class="count" id="count-all"></span></button>
       <div id="subject-list" class="subject-list"></div>
       <button class="add-subject" id="add-subject"><svg><use href="#i-plus"/></svg>Nueva materia</button>
+      <button class="rail-backup" id="backup-btn"><svg><use href="#i-shield"/></svg>Copia de seguridad</button>
+      <input type="file" id="restore-input" hidden>
     </nav>
     <section class="library">
       <header class="lib-head">
+        <div class="backup-banner" id="backup-banner" hidden>
+          <svg><use href="#i-shield"/></svg>
+          <p></p>
+          <button class="ghost">Más tarde</button>
+          <button class="primary">Hacer copia</button>
+        </div>
         <div class="lib-title-row">
           <h1 id="lib-title">Todas las notas</h1>
           <button class="icon-btn" id="subject-menu" aria-label="Opciones de la materia" hidden><svg><use href="#i-dots"/></svg></button>
