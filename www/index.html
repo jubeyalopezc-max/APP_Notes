@@ -68,7 +68,7 @@
             <button data-view="notes" aria-pressed="true">Notas</button>
             <button data-view="index" aria-pressed="false"><svg><use href="#i-index"/></svg>Índice</button>
           </div>
-          <button class="secondary review-btn" id="review-btn" hidden><svg><use href="#i-cards"/></svg>Repasar<span class="badge" id="review-count"></span></button>
+          <button class="secondary review-btn" id="review-btn" hidden><svg><use href="#i-cards"/></svg>Estudiar tarjetas<span class="badge" id="review-count"></span></button>
           <button class="secondary" id="import-pdf"><svg><use href="#i-pdf"/></svg>Importar PDF</button>
           <button class="primary" id="new-note"><svg><use href="#i-plus"/></svg>Nueva nota</button>
         </div>
@@ -176,6 +176,23 @@
       <div class="rv-grades" id="rv-grades" hidden></div>
     </footer>
     <div class="rv-done" id="rv-done" hidden></div>
+  </section>
+
+  <!-- Unir parejas -->
+  <section id="match" hidden aria-label="Unir parejas">
+    <header class="rv-top">
+      <button class="icon-btn" id="mt-close" aria-label="Salir del juego"><svg><use href="#i-close"/></svg></button>
+      <div class="rv-title"><b id="mt-title"></b><span id="mt-count"></span></div>
+      <span class="mt-errors" id="mt-errors"></span>
+      <span class="mt-timer" id="mt-timer">0:00</span>
+    </header>
+    <p class="mt-help" id="mt-help">Une cada definición con su nombre: arrastra de una a la otra, o toca una y luego la otra.</p>
+    <div class="mt-board" id="mt-board">
+      <svg class="mt-lines" id="mt-lines" aria-hidden="true"></svg>
+      <div class="mt-col" id="mt-left" aria-label="Definiciones"></div>
+      <div class="mt-col" id="mt-right" aria-label="Nombres"></div>
+    </div>
+    <div class="mt-done" id="mt-done" hidden></div>
   </section>
 
   <dialog id="dlg"><form method="dialog" id="dlg-form"></form></dialog>

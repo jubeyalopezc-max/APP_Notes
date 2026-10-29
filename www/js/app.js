@@ -4,6 +4,7 @@ import { exportPdf, safeFileName } from './export.js';
 import { PAGE_H, PAGE_GAP } from './render.js';
 import { shareFile, saveToDevice, isNative, DEVICE_FOLDER } from './files.js';
 import { createReview } from './review.js';
+import { createMatch } from './match.js';
 import { newSrs, isDue } from './srs.js';
 import { buildBackup, backupFileName, backupInfo, markManualBackup, autoBackup, setAutoBackup, readBackup, restoreBackup } from './backup.js';
 
@@ -39,8 +40,9 @@ let dlgResolve = null;
 
 function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 
-function dialog(html, { onOpen } = {}) {
+function dialog(html, { onOpen, wide } = {}) {
   form.innerHTML = html;
+  dlg.classList.toggle('wide', !!wide);
   dlg.showModal();
   if (onOpen) onOpen(form);
   const first = form.querySelector('input[type=text]');
@@ -394,12 +396,14 @@ async function editorMore() {
   const act = await dialog(`<h2>Opciones de la nota</h2>
     <div class="field">Fondo<div class="paper-pick">${Object.entries(PAPERS).map(([k, v]) =>
       `<label><input type="radio" name="paper" value="${k}" ${editor.paper === k ? 'checked' : ''}><span class="paper-swatch ${k}"></span>${v}</label>`).join('')}</div></div>
-    <div class="menu-list"><button value="all">Ver toda la nota</button>${editor.layout === 'pages' ? '<button value="page">Agregar página al final</button>' : ''}<button value="rename">Cambiar título</button><button value="pdf">Exportar a PDF</button><button value="addpdf">Agregar páginas de un PDF</button>${state.cards.some(c => c.noteId === openMeta.id) ? '<button value="review">Repasar las tarjetas de esta nota</button>' : ''}</div>
+    <div class="menu-list"><button value="all">Ver toda la nota</button>${editor.layout === 'pages' ? '<button value="page">Agregar página al final</button>' : ''}<button value="rename">Cambiar título</button><button value="pdf">Exportar a PDF</button><button value="addpdf">Agregar páginas de un PDF</button><button value="write">Escribir tarjetas (nombre y definición)</button>${state.cards.some(c => c.noteId === openMeta.id) ? '<button value="review">Repasar las tarjetas de esta nota</button><button value="match">Unir parejas con esta nota</button>' : ''}</div>
     <div class="dlg-actions"><button value="cancel" class="ghost">Cerrar</button><button value="ok" class="primary">Aplicar fondo</button></div>`);
   if (!act) return;
   if (act.action === 'pdf') { await editor.save(); exportNotesPdf([openMeta]); }
   else if (act.action === 'addpdf') pickPdf('append');
   else if (act.action === 'review') { await editor.save(); startReview(state.cards.filter(c => c.noteId === openMeta.id), openMeta.title); }
+  else if (act.action === 'match') { await editor.save(); startMatch(state.cards.filter(c => c.noteId === openMeta.id), openMeta.title, 'note:' + openMeta.id); }
+  else if (act.action === 'write') writeCards();
   else if (act.action === 'all') editor.showAll();
   else if (act.action === 'page') editor.addPage();
   else if (act.action === 'rename') renameNote(openMeta);
@@ -619,10 +623,97 @@ const review = createReview({
   confirmDelete: () => confirmDialog('¿Eliminar esta tarjeta?', 'Se borra solo la tarjeta; la nota queda igual.', 'Eliminar tarjeta'),
 });
 
-$('#review-btn').onclick = () => {
+const isComplete = c => !!(c.front && (c.front.img || c.front.text) && c.back && (c.back.img || c.back.text));
+
+const match = createMatch({ onClose: () => { if (!$('#home').hidden) renderReviewBtn(); } });
+
+function startMatch(cards, title, scope) {
+  const ok = cards.filter(isComplete);
+  if (ok.length < 2) {
+    toast('Para unir parejas necesitas al menos 2 tarjetas con nombre y definición. Escríbelas desde una nota: menú ⋯, Escribir tarjetas.', { long: true });
+    return;
+  }
+  $('#toast').classList.remove('show');
+  match.start({ cards: ok, scope, title });
+}
+
+// Elegir cómo estudiar (repasar o unir parejas) y de qué tema.
+async function studyChooser() {
+  const cards = cardsForView();
   const sub = currentSubject();
-  startReview(cardsForView(), state.current === 'all' ? 'Todas las materias' : state.current === 'none' ? 'Sin materia' : sub ? sub.name : '');
-};
+  const group = state.current === 'all' ? 'Todas las materias' : state.current === 'none' ? 'Sin materia' : sub ? sub.name : '';
+  const notesWith = state.notes.filter(n => cards.some(c => c.noteId === n.id)).sort((a, b) => a.createdAt - b.createdAt);
+  const r = await dialog(`<h2>Estudiar tarjetas</h2>
+    <label class="field">Tema<select name="scope">
+      <option value="">${esc(group)}: todo (${cards.length})</option>
+      ${notesWith.map(n => `<option value="${n.id}">${esc(n.title)} (${cards.filter(c => c.noteId === n.id).length})</option>`).join('')}
+    </select></label>
+    <div class="menu-list">
+      <button value="review"><span>Repasar tarjetas</span><small id="ch-review"></small></button>
+      <button value="match"><span>Unir parejas</span><small id="ch-match"></small></button>
+    </div>
+    <div class="dlg-actions"><button value="cancel" class="ghost">Cerrar</button></div>`, {
+    onOpen: f => {
+      const sel = f.querySelector('select');
+      const upd = () => {
+        const list = sel.value ? cards.filter(c => c.noteId === sel.value) : cards;
+        const due = list.filter(c => isDue(c.srs)).length;
+        const pairs = list.filter(isComplete).length;
+        f.querySelector('#ch-review').textContent = due ? `Te tocan ${due} hoy. Ves la pregunta, piensas la respuesta y te calificas.` : 'Hoy no te toca ninguna; puedes hacer un repaso libre.';
+        f.querySelector('#ch-match').textContent = pairs >= 2 ? `${pairs} parejas. Une cada definición con su nombre, contra el reloj.` : 'Necesitas al menos 2 tarjetas con nombre y definición.';
+      };
+      sel.onchange = upd;
+      upd();
+    },
+  });
+  if (!r || !r.action) return;
+  const list = r.scope ? cards.filter(c => c.noteId === r.scope) : cards;
+  const note = r.scope && state.notes.find(n => n.id === r.scope);
+  const title = note ? note.title : group;
+  if (r.action === 'review') startReview(list, title);
+  else if (r.action === 'match') startMatch(list, title, r.scope ? 'note:' + r.scope : 'view:' + state.current);
+}
+$('#review-btn').onclick = studyChooser;
+
+// Tarjetas escritas: nombre (o término) y definición.
+async function writeCards() {
+  let n = 0;
+  const row = () => { const i = n++; return `<div class="write-row"><input type="text" name="t${i}" maxlength="120" placeholder="Ej.: Enlace iónico" aria-label="Nombre ${i + 1}"><input type="text" name="d${i}" maxlength="400" placeholder="Ej.: Un átomo cede electrones y otro los recibe" aria-label="Definición ${i + 1}"></div>`; };
+  const r = await dialog(`<h2>Escribir tarjetas</h2>
+    <p class="dlg-text">Cada fila es una tarjeta. Sirven para repasar y para el juego de unir parejas.</p>
+    <div class="write-head"><span>Nombre o término</span><span>Definición</span></div>
+    <div class="write-rows">${row()}${row()}${row()}${row()}</div>
+    <button type="button" class="link-btn" id="add-row">Agregar otra fila</button>
+    ${buttons('Guardar tarjetas')}`, {
+    wide: true,
+    onOpen: f => {
+      const rows = f.querySelector('.write-rows');
+      const add = () => { rows.insertAdjacentHTML('beforeend', row()); const last = rows.lastElementChild.querySelector('input'); last.focus(); last.scrollIntoView({ block: 'nearest' }); };
+      f.querySelector('#add-row').onclick = add;
+      // Enter pasa al siguiente campo (y agrega una fila al final) en vez de guardar.
+      rows.addEventListener('keydown', e => {
+        if (e.key !== 'Enter') return;
+        e.preventDefault(); e.stopPropagation();
+        const all = [...rows.querySelectorAll('input')];
+        const i = all.indexOf(e.target);
+        if (i === all.length - 1) add(); else all[i + 1].focus();
+      });
+    },
+  });
+  if (!r) return;
+  let made = 0;
+  for (let i = 0; i < 500; i++) {
+    if (!(('t' + i) in r)) break;
+    const t = (r['t' + i] || '').trim(), d = (r['d' + i] || '').trim();
+    if (!t || !d) continue;
+    const card = { id: uid(), noteId: openMeta.id, front: { text: t }, back: { text: d }, ref: null, createdAt: Date.now(), srs: newSrs() };
+    await db.put('cards', card);
+    state.cards.push(card);
+    made++;
+  }
+  const total = state.cards.filter(c => c.noteId === openMeta.id).length;
+  toast(made ? `Se crearon ${made} tarjeta${made === 1 ? '' : 's'}. Esta nota tiene ${total}.` : 'No se creó ninguna: llena el nombre y la definición en la misma fila.', { long: true });
+}
 
 // ---------- Copia de seguridad ----------
 function sinceText(t) {
@@ -740,6 +831,7 @@ if (CapApp) {
   CapApp.addListener('backButton', () => {
     if (dlg.open) { dlg.close('cancel'); return; }
     if (review.isOpen) { review.close(); return; }
+    if (match.isOpen) { match.close(); return; }
     if (editor.isOpen) { if (!editor.deselect()) closeEditor(); return; }
     if (state.current !== 'all') { state.current = 'all'; render(); return; }
     CapApp.exitApp();

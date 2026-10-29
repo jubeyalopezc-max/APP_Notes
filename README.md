@@ -20,6 +20,8 @@ App de notas para la universidad, hecha para tablets Android con lápiz óptico.
 - Deshacer con dos dedos; todo se guarda en la tablet, sin internet
 - **Modo Estudiar**: tapa partes de la nota (o todo lo resaltado) y destápalas con un toque para ponerte a prueba
 - **Flashcards** creadas desde la nota (también sobre PDF importados), con repaso por repetición espaciada y acceso directo a la parte de la nota de donde salió cada tarjeta
+- **Unir parejas**: juego de relacionar columnas (definición con nombre) contra el reloj, con las tarjetas de una materia o de un tema
+- **Escribir tarjetas** rápido: nombre o término y definición, fila por fila
 - **Copia de seguridad**: un archivo `.notespro` con todas las notas para enviar a Google Drive, correo o WhatsApp;
   copia automática diaria en `Documentos/NotesPro` (últimos 7 días) y restauración que no borra nada
 - **Exportar a PDF** una nota o una materia completa (con portada); el índice de la app se vuelve los marcadores del PDF
