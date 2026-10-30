@@ -25,6 +25,8 @@ let theme = { mode: 'auto', darkSheets: true };
 let editorRef = null;
 try { theme = { ...theme, ...JSON.parse(localStorage.getItem('np-theme') || '{}') }; } catch {}
 const isDarkTheme = () => theme.mode === 'dark' || (theme.mode === 'auto' && themeMq.matches);
+// El PDF sale como se ve en pantalla (hojas oscuras si las estás usando), salvo que se pida siempre claro.
+const pdfDark = () => isDarkTheme() && theme.darkSheets && !theme.pdfLight;
 function applyTheme() {
   const root = document.documentElement;
   if (theme.mode === 'auto') delete root.dataset.theme; else root.dataset.theme = theme.mode;
@@ -465,6 +467,7 @@ async function makePdf(list, opts) {
   const content = await Promise.all(list.map(m => db.get('contents', m.id)));
   return exportPdf(list.map((meta, i) => ({ meta, content: content[i] })), {
     ...opts,
+    dark: pdfDark(),
     onProgress: (d, t) => toast(t > 1 ? `Creando el PDF: página ${d} de ${t}` : 'Creando el PDF…', { sticky: true }),
   });
 }
@@ -1179,12 +1182,16 @@ async function themeDialog() {
     <div class="field">Tema<div class="seg seg-form" role="radiogroup">${[['auto', 'Automático'], ['light', 'Claro'], ['dark', 'Oscuro']].map(([k, v]) =>
       `<label><input type="radio" name="mode" value="${k}" ${theme.mode === k ? 'checked' : ''}>${v}</label>`).join('')}</div></div>
     <p class="dlg-text">Automático sigue el tema de la tablet.</p>
-    <label class="check"><input type="checkbox" name="darkSheets" ${theme.darkSheets ? 'checked' : ''}><span>Hojas oscuras en el tema oscuro, para escribir de noche. La tinta oscura se ve clara; al exportar a PDF todo sale normal, sobre fondo blanco.</span></label>
+    <label class="check"><input type="checkbox" name="darkSheets" ${theme.darkSheets ? 'checked' : ''}><span>Hojas oscuras en el tema oscuro, para escribir de noche. La tinta oscura se ve clara.</span></label>
+    <div class="field">PDF exportado<div class="seg seg-form" role="radiogroup">${[['screen', 'Como se ve en pantalla'], ['light', 'Siempre claro']].map(([k, v]) =>
+      `<label><input type="radio" name="pdf" value="${k}" ${(theme.pdfLight ? 'light' : 'screen') === k ? 'checked' : ''}>${v}</label>`).join('')}</div></div>
+    <p class="dlg-text">Si escribes con hojas oscuras, el PDF también sale oscuro. Elige "Siempre claro" si lo vas a imprimir.</p>
     ${buttons('Listo')}`, {
     onOpen: f => {
       const upd = () => {
         theme.mode = f.querySelector('input[name=mode]:checked').value;
         theme.darkSheets = f.querySelector('input[name=darkSheets]').checked;
+        theme.pdfLight = f.querySelector('input[name=pdf]:checked').value === 'light';
         applyTheme();
       };
       f.querySelectorAll('input').forEach(i => i.addEventListener('change', upd));
