@@ -16,50 +16,141 @@ export const PAPERS = {
   grid: 'Cuadriculado',
   dots: 'Puntos',
   blank: 'En blanco',
+  cornell: 'Cornell',
+  cartesian: 'Plano cartesiano',
+  mm: 'Milimetrado',
 };
 
-export function drawPaper(ctx, top, paper, dark) {
-  ctx.fillStyle = dark ? '#1E2533' : '#FFFFFF';
+const MM = PAGE_W / 210; // un milímetro en una hoja tamaño A4
+
+function palette(dark) {
+  return dark
+    ? { bg: '#1E2533', line: 'rgba(160,180,215,0.16)', strong: 'rgba(170,190,225,0.42)', margin: 'rgba(240,120,130,0.32)', label: 'rgba(175,190,215,0.62)', dot: 'rgba(170,190,225,0.35)', axis: 'rgba(205,215,235,0.8)' }
+    : { bg: '#FFFFFF', line: 'rgba(70,110,180,0.17)', strong: 'rgba(70,110,180,0.40)', margin: 'rgba(220,70,80,0.30)', label: 'rgba(80,95,125,0.62)', dot: 'rgba(70,100,150,0.38)', axis: 'rgba(35,50,80,0.72)' };
+}
+
+function hLines(ctx, x0, x1, y0, y1, step) {
+  for (let y = y0; y < y1; y += step) { ctx.moveTo(x0, y); ctx.lineTo(x1, y); }
+}
+
+// Papel milimetrado: líneas de 1 mm (si se alcanzan a ver), 5 mm y 10 mm.
+function drawMm(ctx, x0, y0, x1, y1, ox, oy, s, pal) {
+  const levels = [[1, 0.6], [5, 1], [10, 1.5]];
+  for (const [k, w] of levels) {
+    const step = MM * k;
+    if (step * s < 3) continue;
+    ctx.strokeStyle = k === 10 ? pal.strong : pal.line;
+    ctx.globalAlpha = k === 1 ? 0.55 : 1;
+    ctx.lineWidth = w / Math.max(s, 0.6);
+    ctx.beginPath();
+    const fx = ox + Math.ceil((x0 - ox) / step) * step, fy = oy + Math.ceil((y0 - oy) / step) * step;
+    for (let x = fx; x < x1; x += step) { ctx.moveTo(x, y0); ctx.lineTo(x, y1); }
+    for (let y = fy; y < y1; y += step) { ctx.moveTo(x0, y); ctx.lineTo(x1, y); }
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+}
+
+// Ejes con flechas y números cada 2 cuadros. (cx, cy) es el origen; step, el tamaño del cuadro.
+function drawAxes(ctx, x0, y0, x1, y1, cx, cy, step, s, pal) {
+  ctx.strokeStyle = pal.axis;
+  ctx.lineWidth = 2 / Math.max(s, 0.6);
+  ctx.beginPath();
+  if (cy >= y0 && cy <= y1) { ctx.moveTo(x0, cy); ctx.lineTo(x1, cy); }
+  if (cx >= x0 && cx <= x1) { ctx.moveTo(cx, y0); ctx.lineTo(cx, y1); }
+  ctx.stroke();
+  const a = 12 / Math.max(s, 0.6);
+  ctx.fillStyle = pal.axis;
+  ctx.beginPath();
+  if (cy >= y0 && cy <= y1) { ctx.moveTo(x1 - 2, cy); ctx.lineTo(x1 - 2 - a, cy - a / 2); ctx.lineTo(x1 - 2 - a, cy + a / 2); }
+  if (cx >= x0 && cx <= x1) { ctx.moveTo(cx, y0 + 2); ctx.lineTo(cx - a / 2, y0 + 2 + a); ctx.lineTo(cx + a / 2, y0 + 2 + a); }
+  ctx.fill();
+  if (step * s * 2 < 22) return; // números ilegibles de lejos
+  const fs = 13 / Math.max(s, 0.75);
+  ctx.font = `${fs}px "Atkinson Hyperlegible", sans-serif`;
+  ctx.fillStyle = pal.label;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  for (let i = Math.ceil((x0 - cx) / step / 2) * 2; cx + i * step < x1 - step; i += 2) {
+    if (i) ctx.fillText(String(i), cx + i * step, cy + 4 / Math.max(s, 0.6));
+  }
+  ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  for (let j = Math.ceil((y0 - cy) / step / 2) * 2; cy + j * step < y1 - step; j += 2) {
+    if (j && cy + j * step > y0 + step) ctx.fillText(String(-j), cx - 5 / Math.max(s, 0.6), cy + j * step);
+  }
+  ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+}
+
+export function drawPaper(ctx, top, paper, dark, s = 1) {
+  const pal = palette(dark);
+  ctx.fillStyle = pal.bg;
   ctx.fillRect(0, top, PAGE_W, PAGE_H);
-  const line = dark ? 'rgba(160,180,215,0.16)' : 'rgba(70,110,180,0.17)';
   ctx.lineWidth = 1.2;
   if (paper === 'lines') {
-    ctx.strokeStyle = line;
-    ctx.beginPath();
-    for (let y = top + 120; y < top + PAGE_H - 30; y += 36) { ctx.moveTo(40, y); ctx.lineTo(PAGE_W - 40, y); }
-    ctx.stroke();
-    ctx.strokeStyle = dark ? 'rgba(240,120,130,0.30)' : 'rgba(220,70,80,0.30)';
+    ctx.strokeStyle = pal.line;
+    ctx.beginPath(); hLines(ctx, 40, PAGE_W - 40, top + 120, top + PAGE_H - 30, 36); ctx.stroke();
+    ctx.strokeStyle = pal.margin;
     ctx.beginPath(); ctx.moveTo(110, top); ctx.lineTo(110, top + PAGE_H); ctx.stroke();
-  } else if (paper === 'grid') {
-    ctx.strokeStyle = line;
+  } else if (paper === 'grid' || paper === 'cartesian') {
+    ctx.strokeStyle = pal.line;
     ctx.beginPath();
     for (let x = 28; x < PAGE_W; x += 32) { ctx.moveTo(x, top); ctx.lineTo(x, top + PAGE_H); }
     for (let y = top + 27; y < top + PAGE_H; y += 32) { ctx.moveTo(0, y); ctx.lineTo(PAGE_W, y); }
     ctx.stroke();
+    if (paper === 'cartesian') drawAxes(ctx, 0, top, PAGE_W, top + PAGE_H, 28 + 32 * 15, top + 27 + 32 * 21, 32, Math.max(s, 0.6), pal);
   } else if (paper === 'dots') {
-    ctx.fillStyle = dark ? 'rgba(170,190,225,0.35)' : 'rgba(70,100,150,0.38)';
+    ctx.fillStyle = pal.dot;
     for (let x = 28; x < PAGE_W; x += 32)
       for (let y = top + 27; y < top + PAGE_H; y += 32) ctx.fillRect(x - 1.4, y - 1.4, 2.8, 2.8);
+  } else if (paper === 'mm') {
+    drawMm(ctx, 0, top, PAGE_W, top + PAGE_H, 0, top, s, pal);
+  } else if (paper === 'cornell') {
+    // Columna de preguntas a la izquierda, notas a la derecha y resumen abajo.
+    const head = top + 110, cue = 300, sum = top + 1130;
+    ctx.strokeStyle = pal.line;
+    ctx.beginPath();
+    hLines(ctx, 24, PAGE_W - 24, head + 72, sum - 10, 36);
+    hLines(ctx, 24, PAGE_W - 24, sum + 72, top + PAGE_H - 30, 36);
+    ctx.stroke();
+    ctx.strokeStyle = pal.strong;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(24, head); ctx.lineTo(PAGE_W - 24, head);
+    ctx.moveTo(cue, head); ctx.lineTo(cue, sum);
+    ctx.moveTo(24, sum); ctx.lineTo(PAGE_W - 24, sum);
+    ctx.stroke();
+    ctx.fillStyle = pal.label;
+    ctx.font = '700 17px "Atkinson Hyperlegible", sans-serif';
+    ctx.fillText('Preguntas e ideas clave', 28, head + 30);
+    ctx.fillText('Notas', cue + 22, head + 30);
+    ctx.fillText('Resumen', 28, sum + 30);
+    ctx.font = '400 17px "Atkinson Hyperlegible", sans-serif';
+    ctx.fillText('Tema y fecha', 28, top + 44);
   }
 }
 
 // Fondo del lienzo libre: el patrón se repite en toda el área visible.
-export function drawPaperArea(ctx, x0, y0, x1, y1, paper, s) {
-  ctx.fillStyle = '#FFFFFF';
+export function drawPaperArea(ctx, x0, y0, x1, y1, paper, s, dark = false) {
+  const pal = palette(dark);
+  ctx.fillStyle = pal.bg;
   ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
-  const step = paper === 'lines' ? 36 : 32;
-  if (paper === 'blank' || step * s < 7) return; // muy lejos: el patrón solo estorba
-  const line = 'rgba(70,110,180,0.17)';
+  if (paper === 'mm') { drawMm(ctx, x0, y0, x1, y1, 0, 0, s, pal); return; }
+  const kind = paper === 'cornell' ? 'lines' : paper;
+  const step = kind === 'lines' ? 36 : 32;
+  if (kind === 'blank' || step * s < 7) {
+    if (kind === 'cartesian') drawAxes(ctx, x0, y0, x1, y1, 0, 0, step, s, pal);
+    return; // muy lejos: el patrón solo estorba
+  }
   ctx.lineWidth = 1.2 / Math.max(s, 0.6);
   const fx = Math.floor(x0 / step) * step, fy = Math.floor(y0 / step) * step;
-  if (paper === 'lines' || paper === 'grid') {
-    ctx.strokeStyle = line;
+  if (kind === 'lines' || kind === 'grid' || kind === 'cartesian') {
+    ctx.strokeStyle = pal.line;
     ctx.beginPath();
     for (let y = fy; y < y1; y += step) { ctx.moveTo(x0, y); ctx.lineTo(x1, y); }
-    if (paper === 'grid') for (let x = fx; x < x1; x += step) { ctx.moveTo(x, y0); ctx.lineTo(x, y1); }
+    if (kind !== 'lines') for (let x = fx; x < x1; x += step) { ctx.moveTo(x, y0); ctx.lineTo(x, y1); }
     ctx.stroke();
-  } else if (paper === 'dots') {
-    ctx.fillStyle = 'rgba(70,100,150,0.38)';
+    if (kind === 'cartesian') drawAxes(ctx, x0, y0, x1, y1, 0, 0, step, s, pal);
+  } else if (kind === 'dots') {
+    ctx.fillStyle = pal.dot;
     const r = 1.4 / Math.max(s, 0.6);
     for (let x = fx; x < x1; x += step) for (let y = fy; y < y1; y += step) ctx.fillRect(x - r, y - r, 2 * r, 2 * r);
   }
@@ -221,6 +312,25 @@ export function bounds(it) {
   return b;
 }
 
+// Hoja oscura: la tinta oscura se muestra clara (lo guardado no cambia; el PDF sale normal).
+let inkDark = false;
+export function setInkDark(v) { inkDark = !!v; }
+const inkCache = new Map();
+function ink(color) {
+  if (!inkDark || !color || color[0] !== '#' || color.length !== 7) return color;
+  let out = inkCache.get(color);
+  if (out) return out;
+  const n = parseInt(color.slice(1), 16), r = n >> 16, g = (n >> 8) & 255, b = n & 255;
+  const lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+  if (Math.max(r, g, b) - Math.min(r, g, b) < 40 && lum < 0.5) out = '#E6EBF4';          // negro o gris oscuro
+  else if (lum < 0.55) {
+    const m = v => Math.round(v + (255 - v) * 0.45);
+    out = '#' + [m(r), m(g), m(b)].map(v => v.toString(16).padStart(2, '0')).join('');
+  } else out = color;
+  inkCache.set(color, out);
+  return out;
+}
+
 export function drawItem(ctx, it, onImageLoad) {
   if (it.type === 'cover') return; // los bloques para tapar los dibuja el editor según el modo
   if (it.type === 'mark') {
@@ -235,7 +345,7 @@ export function drawItem(ctx, it, onImageLoad) {
   }
   if (it.type === 'text') {
     const lines = textLines(ctx, it);
-    ctx.fillStyle = it.color;
+    ctx.fillStyle = ink(it.color);
     ctx.textBaseline = 'top';
     lines.forEach((l, i) => ctx.fillText(l, it.x, it.y + i * it.size * 1.3));
     return;
@@ -243,8 +353,8 @@ export function drawItem(ctx, it, onImageLoad) {
   const path = getPath(it);
   if (it.type === 'stroke' && it.tool === 'hl') {
     ctx.save();
-    ctx.globalAlpha = 0.38;
-    ctx.globalCompositeOperation = 'multiply';
+    ctx.globalAlpha = inkDark ? 0.32 : 0.38;
+    ctx.globalCompositeOperation = inkDark ? 'screen' : 'multiply';
     ctx.strokeStyle = it.color;
     ctx.lineWidth = it.width;
     ctx.lineCap = 'round';
@@ -252,10 +362,10 @@ export function drawItem(ctx, it, onImageLoad) {
     ctx.stroke(path);
     ctx.restore();
   } else if (it.type === 'stroke') {
-    ctx.fillStyle = it.color;
+    ctx.fillStyle = ink(it.color);
     ctx.fill(path);
   } else {
-    ctx.strokeStyle = it.color;
+    ctx.strokeStyle = ink(it.color);
     ctx.lineWidth = it.width;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';

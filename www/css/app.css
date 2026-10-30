@@ -22,8 +22,9 @@
   --safe-b: env(safe-area-inset-bottom, 0px);
   color-scheme: light;
 }
+/* Tema oscuro: automático (según la tablet) o elegido en Apariencia. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --ink: #E6EBF4;
     --muted: #93A0B6;
     --desk: #121722;
@@ -35,6 +36,18 @@
     --danger: #FF7A82;
     color-scheme: dark;
   }
+}
+:root[data-theme="dark"] {
+    --ink: #E6EBF4;
+    --muted: #93A0B6;
+    --desk: #121722;
+    --panel: #1B2230;
+    --raised: #232C3D;
+    --line: #313C50;
+    --accent: #7D9BFF;
+    --on-accent: #0E1424;
+    --danger: #FF7A82;
+    color-scheme: dark;
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -175,7 +188,7 @@ svg { width: 22px; height: 22px; flex: none; }
 .swatches, .sizes { display: flex; gap: 6px; align-items: center; }
 .swatch {
   --c: #000; position: relative; width: 34px; height: 34px; border-radius: 50%;
-  background: var(--c); box-shadow: inset 0 0 0 1.5px rgba(0,0,0,.14);
+  background: var(--c); box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--ink) 22%, transparent);
 }
 .swatch[aria-pressed="true"] { box-shadow: 0 0 0 2.5px var(--panel), 0 0 0 4.5px var(--ink); }
 .swatch.custom { background: conic-gradient(#E33 0 60deg, #EC3 0 120deg, #3B6 0 180deg, #3BE 0 240deg, #63E 0 300deg, #E3B 0); display: inline-block; cursor: pointer; }
@@ -530,6 +543,17 @@ body.pomo-on .notes { padding-bottom: calc(96px + var(--safe-b)); }
 .st-kinds { color: var(--muted); font-size: 14px; margin: 14px 0 4px; }
 .st-empty { color: var(--muted); margin: 6px 0 10px; }
 
+/* ---------- Papelera ---------- */
+.trash-spine::before { background: var(--line); }
+.trash-spine { color: var(--muted); }
+.trash-head { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; color: var(--muted); }
+.trash-head p { margin: 0; max-width: 60ch; }
+.danger-text { color: var(--danger); }
+.note-card.trashed .thumb { opacity: .55; filter: grayscale(.5); cursor: default; }
+.trash-actions { display: flex; gap: 6px; }
+.trash-actions .secondary { height: 40px; padding: 0 14px; }
+.trash-actions .ghost { height: 40px; padding: 0 10px; }
+
 /* ---------- Calendario ---------- */
 #calendar { position: fixed; inset: 0; z-index: 20; display: flex; flex-direction: column; background: var(--desk); padding-top: var(--safe-t); }
 .cal-new { height: 42px; padding: 0 14px; }
@@ -611,13 +635,16 @@ dialog h2 { margin: 0 0 16px; font: 800 24px/1.15 var(--display); letter-spacing
 .color-pick span { display: block; width: 38px; height: 38px; border-radius: 50%; background: var(--c); }
 .color-pick input:checked + span { box-shadow: 0 0 0 3px var(--panel), 0 0 0 5px var(--ink); }
 .color-pick input:focus-visible + span { outline: 2.5px solid var(--accent); outline-offset: 5px; }
-.paper-pick { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; font-weight: 400; font-size: 14px; }
+.paper-pick { display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 10px; font-weight: 400; font-size: 14px; }
 .paper-pick label { display: flex; flex-direction: column; align-items: center; gap: 6px; cursor: pointer; }
 .paper-pick input { position: absolute; opacity: 0; }
 .paper-swatch { width: 100%; aspect-ratio: 3 / 4; border-radius: 6px; background-color: #fff; border: 1.5px solid var(--line); }
 .paper-swatch.lines { background-image: linear-gradient(90deg, transparent 22%, rgba(220,70,80,.35) 22% 24%, transparent 24%), repeating-linear-gradient(transparent 0 9px, rgba(70,110,180,.3) 9px 10px); }
 .paper-swatch.grid { background-image: repeating-linear-gradient(transparent 0 7px, rgba(70,110,180,.3) 7px 8px), repeating-linear-gradient(90deg, transparent 0 7px, rgba(70,110,180,.3) 7px 8px); }
 .paper-swatch.dots { background-image: radial-gradient(rgba(70,100,150,.55) 1px, transparent 1.4px); background-size: 8px 8px; }
+.paper-swatch.cornell { background-image: linear-gradient(90deg, transparent 30%, rgba(70,110,180,.55) 30% 32%, transparent 32%), linear-gradient(transparent 14%, rgba(70,110,180,.55) 14% 16%, transparent 16% 80%, rgba(70,110,180,.55) 80% 82%, transparent 82%); }
+.paper-swatch.cartesian { background-image: linear-gradient(90deg, transparent calc(50% - 1px), rgba(35,50,80,.8) calc(50% - 1px) calc(50% + 1px), transparent calc(50% + 1px)), linear-gradient(transparent calc(50% - 1px), rgba(35,50,80,.8) calc(50% - 1px) calc(50% + 1px), transparent calc(50% + 1px)), repeating-linear-gradient(transparent 0 7px, rgba(70,110,180,.3) 7px 8px), repeating-linear-gradient(90deg, transparent 0 7px, rgba(70,110,180,.3) 7px 8px); }
+.paper-swatch.mm { background-image: repeating-linear-gradient(transparent 0 9px, rgba(70,110,180,.5) 9px 10px), repeating-linear-gradient(90deg, transparent 0 9px, rgba(70,110,180,.5) 9px 10px), repeating-linear-gradient(transparent 0 1.6px, rgba(70,110,180,.16) 1.6px 2px), repeating-linear-gradient(90deg, transparent 0 1.6px, rgba(70,110,180,.16) 1.6px 2px); }
 .paper-pick input:checked + .paper-swatch { border-color: var(--ink); box-shadow: 0 0 0 1.5px var(--ink); }
 .paper-pick input:focus-visible + .paper-swatch { outline: 2.5px solid var(--accent); outline-offset: 3px; }
 .menu-list { display: flex; flex-direction: column; margin: 0 -8px 8px; }

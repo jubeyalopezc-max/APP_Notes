@@ -16,7 +16,21 @@ const SUBJECT_COLORS = ['#2D55E0', '#12968A', '#D9442F', '#E7A21A', '#7A4BD6', '
 
 const MARK_COLORS = ['#D9442F', '#2D55E0', '#1E9E5A', '#E7A21A', '#7A4BD6'];
 
-const state = { subjects: [], notes: [], cards: [], events: [], current: 'all', query: '', view: 'notes' };
+const state = { subjects: [], notes: [], trash: [], cards: [], events: [], current: 'all', query: '', view: 'notes' };
+
+// ---------- Apariencia ----------
+const themeMq = window.matchMedia('(prefers-color-scheme: dark)');
+let theme = { mode: 'auto', darkSheets: true };
+let editorRef = null;
+try { theme = { ...theme, ...JSON.parse(localStorage.getItem('np-theme') || '{}') }; } catch {}
+const isDarkTheme = () => theme.mode === 'dark' || (theme.mode === 'auto' && themeMq.matches);
+function applyTheme() {
+  const root = document.documentElement;
+  if (theme.mode === 'auto') delete root.dataset.theme; else root.dataset.theme = theme.mode;
+  if (editorRef && editorRef.isOpen) editorRef.refresh();
+}
+applyTheme();
+themeMq.addEventListener('change', applyTheme);
 
 // ---------- Avisos ----------
 let toastTimer;
@@ -102,11 +116,24 @@ async function askMark({ isNew, title, color, snap }) {
 }
 
 // ---------- Datos ----------
+const TRASH_DAYS = 30;
+
+async function purgeNote(n, cards = state.cards) {
+  await db.del('notes', n.id);
+  await db.del('contents', n.id);
+  for (const c of cards.filter(c => c.noteId === n.id)) await db.del('cards', c.id);
+}
 async function load() {
   const [subjects, notes, cards] = await Promise.all([db.all('subjects'), db.all('notes'), db.all('cards')]);
   state.subjects = subjects.sort((a, b) => a.createdAt - b.createdAt);
-  state.notes = notes;
-  state.cards = cards;
+  // Las notas en la papelera llevan deletedAt; se borran del todo a los 30 días.
+  const now = Date.now();
+  const expired = notes.filter(n => n.deletedAt && now - n.deletedAt > TRASH_DAYS * 86400000);
+  for (const n of expired) await purgeNote(n, cards);
+  const gone = new Set(expired.map(n => n.id));
+  state.notes = notes.filter(n => !n.deletedAt);
+  state.trash = notes.filter(n => n.deletedAt && !gone.has(n.id));
+  state.cards = cards.filter(c => !gone.has(c.noteId));
   state.events = await db.all('events');
 }
 
@@ -132,6 +159,10 @@ function renderRail() {
     list.appendChild(b);
   }
   $('#count-all').textContent = state.notes.length || '';
+  const tb = $('#trash-btn');
+  tb.hidden = !state.trash.length;
+  $('#trash-count').textContent = state.trash.length || '';
+  tb.setAttribute('aria-current', String(state.current === 'trash'));
   document.querySelectorAll('.spine').forEach(b => b.setAttribute('aria-current', String(b.dataset.subject === state.current)));
 }
 
@@ -149,6 +180,9 @@ function ago(t) {
 }
 
 function renderNotes() {
+  if (state.current === 'trash') { renderTrash(); return; }
+  $('#notes').classList.remove('as-index');
+  document.querySelector('.lib-tools').hidden = false;
   const sub = currentSubject();
   $('#lib-title').textContent = state.current === 'all' ? 'Todas las notas' : state.current === 'none' ? 'Sin materia' : sub ? sub.name : '';
   $('#subject-menu').hidden = !sub;
@@ -338,14 +372,12 @@ async function noteMenu(n) {
     await db.put('notes', n);
     render();
   } else if (act === 'del') {
-    const nc = state.cards.filter(c => c.noteId === n.id);
-    if (!await confirmDialog(`¿Eliminar “${n.title}”?`, `La nota y todo lo que tiene se borran de este dispositivo${nc.length ? `, también sus ${nc.length} tarjeta${nc.length === 1 ? '' : 's'} de estudio` : ''}.`, 'Eliminar nota')) return;
-    await db.del('notes', n.id);
-    await db.del('contents', n.id);
-    for (const c of nc) await db.del('cards', c.id);
-    state.cards = state.cards.filter(c => c.noteId !== n.id);
+    n.deletedAt = Date.now();
+    await db.put('notes', n);
     state.notes = state.notes.filter(x => x.id !== n.id);
+    state.trash.push(n);
     render();
+    toast(`“${n.title}” está en la papelera. La puedes recuperar durante ${TRASH_DAYS} días.`, { long: true });
   }
 }
 
@@ -363,6 +395,7 @@ async function renameNote(n) {
 let openMeta = null;
 const editor = createEditor({
   toast,
+  isDarkPaper: () => isDarkTheme() && theme.darkSheets,
   askMark,
   onCapture: captureForCard,
   onSave: async (meta, content, thumb, outline) => {
@@ -374,6 +407,8 @@ const editor = createEditor({
     await db.put('notes', meta);
   },
 });
+editorRef = editor;
+
 
 async function openNote(n, focus) {
   const content = await db.get('contents', n.id);
@@ -483,10 +518,11 @@ async function convertPdf(doc, startPage) {
   });
 }
 
-$('#pdf-input').addEventListener('change', async e => {
-  const file = e.target.files && e.target.files[0];
+$('#pdf-input').addEventListener('change', e => handlePdfFile(e.target.files && e.target.files[0], pdfMode));
+
+async function handlePdfFile(file, mode) {
   if (!file) return;
-  if (pdfMode === 'append' && editor.isOpen) {
+  if (mode === 'append' && editor.isOpen) {
     await withBusy(async () => {
       try {
         const start = editor.isEmpty ? 0 : editor.pageCount;
@@ -535,7 +571,7 @@ $('#pdf-input').addEventListener('change', async e => {
       toast(err.message || 'No se pudo importar el PDF.', { long: true });
     }
   });
-});
+}
 
 // ---------- Tarjetas de estudio ----------
 let cardDraft = null;
@@ -1066,6 +1102,124 @@ function planHtml(plan, title) {
     [...p.topics.map(id => esc(title(id))), p.simulacro ? (all ? '¡Ya repasaste todo! Haz un examen de práctica.' : 'Examen de práctica de todo') : ''].filter(Boolean).join(', ')}</span></div>`).join('');
 }
 
+
+// ---------- Papelera ----------
+function renderTrash() {
+  $('#lib-title').textContent = 'Papelera';
+  $('#subject-menu').hidden = true;
+  document.querySelector('.lib-tools').hidden = true;
+  $('#up-events').hidden = true;
+  document.documentElement.style.setProperty('--subject', 'var(--muted)');
+  const box = $('#notes');
+  box.classList.remove('as-index');
+  box.innerHTML = '';
+  const list = state.trash.slice().sort((a, b) => b.deletedAt - a.deletedAt);
+  const head = document.createElement('div');
+  head.className = 'trash-head';
+  head.innerHTML = list.length
+    ? `<p>Las notas eliminadas se guardan aquí ${TRASH_DAYS} días, con sus tarjetas, y después se borran solas.</p><button class="ghost danger-text" id="trash-empty">Vaciar papelera</button>`
+    : '<p>La papelera está vacía.</p>';
+  box.appendChild(head);
+  head.querySelector('#trash-empty')?.addEventListener('click', emptyTrash);
+  for (const n of list) {
+    const s = state.subjects.find(x => x.id === n.subjectId);
+    const left = Math.max(1, TRASH_DAYS - Math.floor((Date.now() - n.deletedAt) / 86400000));
+    const card = document.createElement('article');
+    card.className = 'note-card trashed';
+    card.style.setProperty('--c', s ? s.color : '#9AA6B8');
+    card.innerHTML = `
+      <div class="thumb">${n.thumb ? `<img src="${n.thumb}" alt="">` : ''}</div>
+      <div class="note-meta"><div class="note-text"><h3>${esc(n.title)}</h3><p>${s ? `<span class="tag">${esc(s.name)}</span>` : ''}Se borra en ${left} día${left === 1 ? '' : 's'}</p></div></div>
+      <div class="trash-actions"><button class="secondary" data-act="restore">Restaurar</button><button class="ghost danger-text" data-act="purge">Eliminar</button></div>`;
+    card.querySelector('[data-act=restore]').onclick = () => restoreNote(n);
+    card.querySelector('[data-act=purge]').onclick = () => purgeForever(n);
+    box.appendChild(card);
+  }
+}
+
+async function restoreNote(n) {
+  delete n.deletedAt;
+  await db.put('notes', n);
+  state.trash = state.trash.filter(x => x.id !== n.id);
+  state.notes.push(n);
+  if (!state.trash.length) state.current = n.subjectId && state.subjects.some(s => s.id === n.subjectId) ? n.subjectId : 'all';
+  render();
+  toast(`“${n.title}” volvió${n.subjectId && state.subjects.some(s => s.id === n.subjectId) ? '' : ' a Sin materia'}.`);
+}
+
+async function purgeForever(n) {
+  const nc = state.cards.filter(c => c.noteId === n.id).length;
+  if (!await confirmDialog(`¿Eliminar “${n.title}” para siempre?`, `Ya no se podrá recuperar${nc ? `, ni sus ${nc} tarjeta${nc === 1 ? '' : 's'}` : ''}.`, 'Eliminar para siempre')) return;
+  await purgeNote(n);
+  state.cards = state.cards.filter(c => c.noteId !== n.id);
+  state.trash = state.trash.filter(x => x.id !== n.id);
+  if (!state.trash.length) state.current = 'all';
+  render();
+}
+
+async function emptyTrash() {
+  const k = state.trash.length;
+  if (!await confirmDialog('¿Vaciar la papelera?', `Se borran para siempre ${k} nota${k === 1 ? '' : 's'} y sus tarjetas.`, 'Vaciar papelera')) return;
+  for (const n of state.trash) { await purgeNote(n); state.cards = state.cards.filter(c => c.noteId !== n.id); }
+  state.trash = [];
+  state.current = 'all';
+  render();
+  toast('Papelera vacía.');
+}
+
+
+// ---------- Apariencia ----------
+async function themeDialog() {
+  const prev = { ...theme };
+  const r = await dialog(`<h2>Apariencia</h2>
+    <div class="field">Tema<div class="seg seg-form" role="radiogroup">${[['auto', 'Automático'], ['light', 'Claro'], ['dark', 'Oscuro']].map(([k, v]) =>
+      `<label><input type="radio" name="mode" value="${k}" ${theme.mode === k ? 'checked' : ''}>${v}</label>`).join('')}</div></div>
+    <p class="dlg-text">Automático sigue el tema de la tablet.</p>
+    <label class="check"><input type="checkbox" name="darkSheets" ${theme.darkSheets ? 'checked' : ''}><span>Hojas oscuras en el tema oscuro, para escribir de noche. La tinta oscura se ve clara; al exportar a PDF todo sale normal, sobre fondo blanco.</span></label>
+    ${buttons('Listo')}`, {
+    onOpen: f => {
+      const upd = () => {
+        theme.mode = f.querySelector('input[name=mode]:checked').value;
+        theme.darkSheets = f.querySelector('input[name=darkSheets]').checked;
+        applyTheme();
+      };
+      f.querySelectorAll('input').forEach(i => i.addEventListener('change', upd));
+    },
+  });
+  if (!r) { theme = prev; applyTheme(); return; }
+  try { localStorage.setItem('np-theme', JSON.stringify(theme)); } catch {}
+}
+$('#theme-btn').onclick = themeDialog;
+
+
+// ---------- Abrir con NotesPro (PDF compartido desde WhatsApp, Drive, etc.) ----------
+const SharedFile = isNative && window.Capacitor.Plugins.SharedFile;
+const sharedSeen = new Set();
+async function onSharedFile(d) {
+  if (!d || !d.path || sharedSeen.has(d.path)) return;
+  sharedSeen.add(d.path);
+  if (!/pdf/i.test(d.type || '') && !/\.pdf$/i.test(d.name || '')) { toast('NotesPro solo puede abrir archivos PDF.', { long: true }); return; }
+  try {
+    const url = window.Capacitor.convertFileSrc('file://' + d.path);
+    const blob = await (await fetch(url)).blob();
+    const file = new File([blob], d.name || 'documento.pdf', { type: 'application/pdf' });
+    // Volver al inicio antes de importar.
+    if (dlg.open) dlg.close('cancel');
+    if (review.isOpen) review.close();
+    if (match.isOpen) match.close();
+    if (!$('#calendar').hidden) $('#calendar').hidden = true;
+    if (editor.isOpen) await closeEditor();
+    await handlePdfFile(file, 'new');
+  } catch (e) {
+    console.error(e);
+    toast('No se pudo abrir el PDF que compartiste.', { long: true });
+  }
+}
+if (SharedFile) {
+  SharedFile.addListener('file', onSharedFile);
+  SharedFile.addListener('fileError', () => toast('No se pudo leer el archivo compartido.', { long: true }));
+}
+
 // ---------- Copia de seguridad ----------
 function sinceText(t) {
   if (!t) return null;
@@ -1197,6 +1351,7 @@ if (CapApp) {
   await load();
   render();
   if (document.fonts) document.fonts.load('16px "Atkinson Hyperlegible"');
+  if (SharedFile) SharedFile.getPending().then(r => r && r.file && onSharedFile(r.file)).catch(() => {});
   // La copia automática se hace un poco después de abrir, para no demorar el inicio.
   setTimeout(() => autoBackup().catch(() => {}), 4000);
 })();

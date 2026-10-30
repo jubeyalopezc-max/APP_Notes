@@ -71,7 +71,7 @@ async function renderNote(meta, content, onPage) {
     c.width = Math.round(PAGE_W * RES); c.height = Math.round(PAGE_H * RES);
     const g = c.getContext('2d');
     g.scale(RES, RES); g.translate(0, -top);
-    drawPaper(g, top, paper, false);
+    drawPaper(g, top, paper, false, RES);
     g.save();
     g.beginPath(); g.rect(0, top, PAGE_W, PAGE_H); g.clip();
     for (const it of ink) {

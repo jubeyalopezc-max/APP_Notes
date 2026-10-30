@@ -1,5 +1,5 @@
 import {
-  PAGE_W, PAGE_H, PAGE_GAP, pageTop, PAPERS, drawPaper, drawPaperArea, drawItem, bounds, hits, translated, MARK_W, MARK_H, textLines,
+  PAGE_W, PAGE_H, PAGE_GAP, pageTop, PAPERS, drawPaper, drawPaperArea, drawItem, bounds, hits, translated, MARK_W, MARK_H, textLines, setInkDark,
 } from './render.js';
 import { recognize, describeShape } from './shapes.js';
 import { uid } from './db.js';
@@ -34,7 +34,8 @@ function loadSettings() {
 }
 function saveSettings(s) { try { localStorage.setItem('np-settings', JSON.stringify(s)); } catch {} }
 
-export function createEditor({ onSave, onClose, toast, askMark, onCapture }) {
+export function createEditor({ onSave, onClose, toast, askMark, onCapture, isDarkPaper }) {
+  const darkPaper = () => !!(isDarkPaper && isDarkPaper());
   const stage = $('#stage');
   const cvMain = $('#cv-main');
   const cvLive = $('#cv-live');
@@ -204,13 +205,16 @@ export function createEditor({ onSave, onClose, toast, askMark, onCapture }) {
       const g = c.getContext('2d');
       const k = c.width / PAGE_W, top = pageTop(i);
       g.scale(k, k); g.translate(0, -top);
-      drawPaper(g, top, paper, false);
+      const dk = darkPaper();
+      drawPaper(g, top, paper, dk, k);
       g.beginPath(); g.rect(0, top, PAGE_W, PAGE_H); g.clip();
+      setInkDark(dk);
       for (const it of items) {
         const bb = bounds(it);
         if (bb.y1 < top || bb.y0 > top + PAGE_H) continue;
         drawItem(g, it, () => { if (!pending) { pending = true; setTimeout(() => !ov.hidden && renderOverview(), 50); } });
       }
+      setInkDark(false);
       const lbl = document.createElement('span');
       lbl.textContent = i + 1;
       b.append(c, lbl);
@@ -283,6 +287,12 @@ export function createEditor({ onSave, onClose, toast, askMark, onCapture }) {
   }
 
   function paint() {
+    const dk = darkPaper();
+    setInkDark(dk);
+    try { paintInner(dk); } finally { setInkDark(false); }
+  }
+
+  function paintInner(dk) {
     const css = getComputedStyle(document.documentElement);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.fillStyle = css.getPropertyValue('--desk').trim() || '#E4E8EF';
@@ -291,13 +301,13 @@ export function createEditor({ onSave, onClose, toast, askMark, onCapture }) {
     const { s, ox, oy } = view;
     ctx.setTransform(dpr * s, 0, 0, dpr * s, dpr * ox, dpr * oy);
     const vy0 = -oy / s, vy1 = (H - oy) / s, vx0 = -ox / s, vx1 = (W - ox) / s;
-    if (layout === 'canvas') drawPaperArea(ctx, vx0, vy0, vx1, vy1, paper, s);
+    if (layout === 'canvas') drawPaperArea(ctx, vx0, vy0, vx1, vy1, paper, s, dk);
     for (let i = 0; layout === 'pages' && i < pages; i++) {
       const t = pageTop(i);
       if (t > vy1 || t + PAGE_H < vy0) continue;
       ctx.fillStyle = 'rgba(20,35,60,0.10)';
       ctx.fillRect(3, t + 5, PAGE_W, PAGE_H);
-      drawPaper(ctx, t, paper, false);
+      drawPaper(ctx, t, paper, dk, s);
     }
     for (const it of items) {
       if (editingText && it === editingText.item) continue;
@@ -360,9 +370,12 @@ export function createEditor({ onSave, onClose, toast, askMark, onCapture }) {
       mmBase.width = mmCv.width; mmBase.height = mmCv.height;
       const g = mmBase.getContext('2d');
       g.setTransform(k * pr, 0, 0, k * pr, -b.x0 * k * pr, -b.y0 * k * pr);
-      if (layout === 'canvas') drawPaperArea(g, b.x0, b.y0, b.x1, b.y1, 'blank', k);
-      else for (let i = 0; i < pages; i++) { g.fillStyle = '#fff'; g.fillRect(0, pageTop(i), PAGE_W, PAGE_H); }
+      const dk = darkPaper();
+      if (layout === 'canvas') drawPaperArea(g, b.x0, b.y0, b.x1, b.y1, 'blank', k, dk);
+      else for (let i = 0; i < pages; i++) { g.fillStyle = dk ? '#1E2533' : '#fff'; g.fillRect(0, pageTop(i), PAGE_W, PAGE_H); }
+      setInkDark(dk);
       for (const it of items) drawItem(g, it, () => { mmStale = true; redraw(); });
+      setInkDark(false);
     } else if (mmStale) {
       clearTimeout(mmTimer);
       mmTimer = setTimeout(redraw, 320);
@@ -406,6 +419,11 @@ export function createEditor({ onSave, onClose, toast, askMark, onCapture }) {
   zMap.onclick = () => { S.showMap = !S.showMap; saveSettings(S); mmStale = true; redraw(); };
 
   function paintLive() {
+    setInkDark(darkPaper());
+    try { paintLiveInner(); } finally { setInkDark(false); }
+  }
+
+  function paintLiveInner() {
     lctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     lctx.clearRect(0, 0, W, H);
     lctx.setTransform(dpr * view.s, 0, 0, dpr * view.s, dpr * view.ox, dpr * view.oy);
@@ -549,7 +567,7 @@ export function createEditor({ onSave, onClose, toast, askMark, onCapture }) {
       return c.toDataURL('image/jpeg', 0.7);
     }
     g.scale(k, k);
-    drawPaper(g, 0, paper, false);
+    drawPaper(g, 0, paper, false, k);
     for (const it of items) { const b = bounds(it); if (b.y0 < PAGE_H) drawItem(g, it, () => {}); }
     return c.toDataURL('image/jpeg', 0.7);
   }
@@ -1547,6 +1565,7 @@ export function createEditor({ onSave, onClose, toast, askMark, onCapture }) {
     get paper() { return paper; },
     get layout() { return layout; },
     get pageCount() { return pages; },
+    refresh() { mmStale = true; if (!ov.hidden) renderOverview(); redraw(); },
     setCaptureHint,
     get studying() { return studying; },
     get isEmpty() { return !items.length; },

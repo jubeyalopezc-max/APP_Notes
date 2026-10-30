@@ -10,7 +10,7 @@ App de notas para la universidad, hecha para tablets Android con lápiz óptico.
 - Insertar imágenes desde la galería o la cámara
 - **Importar PDF** (diapositivas, guías) y escribir encima: cada página queda como fondo de una hoja; los títulos de cada página entran al índice y el texto del PDF se puede buscar
 - Dos formatos: **hojas** (páginas una debajo de otra) o **lienzo libre** (sin bordes, hacia cualquier lado)
-- Fondos rayado, cuadriculado, de puntos o en blanco
+- Fondos rayado, cuadriculado, de puntos, en blanco, **Cornell**, **plano cartesiano** y **milimetrado**
 - **Ver todo**: en hojas muestra todas las páginas en cuadrícula; en el lienzo aleja la vista hasta que se vea todo lo dibujado
 - **Mapa** de la nota en una esquina: muestra dónde estás y lleva a cualquier parte con un toque
 - Zoom con pellizco o botones, que permite alejarse hasta ver la nota completa
@@ -26,6 +26,9 @@ App de notas para la universidad, hecha para tablets Android con lápiz óptico.
 - **Modo examen**: simulacro con tiempo límite y nota de 0 a 5; lo que no sabías queda para repasar hoy
 - **Tiempo de estudio**: minutos por día y por materia cada semana, y días seguidos estudiando
 - **Calendario** de parciales, quices, entregas y exposiciones por materia: cuenta regresiva, temas que entran, plan de repaso día a día, recordatorios y avisos en el inicio
+- **Papelera**: las notas eliminadas se guardan 30 días antes de borrarse
+- **Abrir con NotesPro**: los PDF que te mandan por WhatsApp, Drive o correo se abren directo en la app
+- **Modo oscuro** automático, claro u oscuro, con hojas oscuras y tinta clara para escribir de noche (el PDF sale normal)
 - **Copia de seguridad**: un archivo `.notespro` con todas las notas para enviar a Google Drive, correo o WhatsApp;
   copia automática diaria en `Documentos/NotesPro` (últimos 7 días) y restauración que no borra nada
 - **Exportar a PDF** una nota o una materia completa (con portada); el índice de la app se vuelve los marcadores del PDF

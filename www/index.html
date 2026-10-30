@@ -40,6 +40,7 @@
       <symbol id="i-pause" viewBox="0 0 24 24"><path d="M9 6v12M15 6v12" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></symbol>
       <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5z" fill="currentColor"/></symbol>
       <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.9"/><path d="M3.5 10h17M8 3v4M16 3v4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><rect x="7" y="13" width="3.5" height="3.5" rx=".8" fill="currentColor"/></symbol>
+      <symbol id="i-moon" viewBox="0 0 24 24"><path d="M19.5 14.6A7.8 7.8 0 019.4 4.5a7.8 7.8 0 1010.1 10.1z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/></symbol>
       <symbol id="i-page" viewBox="0 0 24 24"><path d="M6 3.5h8l4 4v13H6z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/><path d="M12 11v6M9 14h6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></symbol>
     </defs>
   </svg>
@@ -50,10 +51,12 @@
       <div class="brand">NotesPro</div>
       <button class="spine all" data-subject="all"><span class="spine-name">Todas las notas</span><span class="count" id="count-all"></span></button>
       <div id="subject-list" class="subject-list"></div>
+      <button class="spine trash-spine" id="trash-btn" data-subject="trash" hidden><span class="spine-name">Papelera</span><span class="count" id="trash-count"></span></button>
       <button class="add-subject" id="add-subject"><svg><use href="#i-plus"/></svg>Nueva materia</button>
       <button class="rail-backup rail-first" id="cal-btn"><svg><use href="#i-calendar"/></svg>Calendario<span class="badge" id="cal-count"></span></button>
       <button class="rail-backup rail-mid" id="pomo-btn"><svg><use href="#i-timer"/></svg>Pomodoro</button>
       <button class="rail-backup rail-mid" id="stats-btn"><svg><use href="#i-chart"/></svg>Tiempo de estudio</button>
+      <button class="rail-backup rail-mid" id="theme-btn"><svg><use href="#i-moon"/></svg>Apariencia</button>
       <button class="rail-backup rail-mid" id="backup-btn"><svg><use href="#i-shield"/></svg>Copia de seguridad</button>
       <input type="file" id="restore-input" hidden>
       <input type="file" id="pdf-input" accept="application/pdf,.pdf" hidden>
