@@ -14,8 +14,8 @@ function setInfo(patch) {
 }
 
 export async function buildBackup() {
-  const [subjects, notes, contents, cards, sessions] = await Promise.all([db.all('subjects'), db.all('notes'), db.all('contents'), db.all('cards'), db.all('sessions')]);
-  const data = { app: 'NotesPro', version: 3, createdAt: Date.now(), subjects, notes, contents, cards, sessions };
+  const [subjects, notes, contents, cards, sessions, events] = await Promise.all([db.all('subjects'), db.all('notes'), db.all('contents'), db.all('cards'), db.all('sessions'), db.all('events')]);
+  const data = { app: 'NotesPro', version: 4, createdAt: Date.now(), subjects, notes, contents, cards, sessions, events };
   return { blob: new Blob([JSON.stringify(data)], { type: 'application/octet-stream' }), subjects: subjects.length, notes: notes.length };
 }
 
@@ -93,6 +93,12 @@ export async function restoreBackup(data) {
   for (const x of data.sessions || []) {
     if (mineSessions.has(x.id)) continue;
     await db.put('sessions', { ...x, subjectId: remap.get(x.subjectId) || x.subjectId });
+  }
+  // Calendario (versión 4 en adelante).
+  const mineEvents = new Set((await db.all('events')).map(x => x.id));
+  for (const x of data.events || []) {
+    if (mineEvents.has(x.id)) continue;
+    await db.put('events', { ...x, subjectId: remap.get(x.subjectId) || x.subjectId });
   }
   return { added, updated, newSubjects, cards };
 }

@@ -39,6 +39,7 @@
       <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20h16M7 16.5v-5M12 16.5V6.5M17 16.5v-8" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></symbol>
       <symbol id="i-pause" viewBox="0 0 24 24"><path d="M9 6v12M15 6v12" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></symbol>
       <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5z" fill="currentColor"/></symbol>
+      <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.9"/><path d="M3.5 10h17M8 3v4M16 3v4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><rect x="7" y="13" width="3.5" height="3.5" rx=".8" fill="currentColor"/></symbol>
       <symbol id="i-page" viewBox="0 0 24 24"><path d="M6 3.5h8l4 4v13H6z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/><path d="M12 11v6M9 14h6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></symbol>
     </defs>
   </svg>
@@ -50,7 +51,8 @@
       <button class="spine all" data-subject="all"><span class="spine-name">Todas las notas</span><span class="count" id="count-all"></span></button>
       <div id="subject-list" class="subject-list"></div>
       <button class="add-subject" id="add-subject"><svg><use href="#i-plus"/></svg>Nueva materia</button>
-      <button class="rail-backup rail-first" id="pomo-btn"><svg><use href="#i-timer"/></svg>Pomodoro</button>
+      <button class="rail-backup rail-first" id="cal-btn"><svg><use href="#i-calendar"/></svg>Calendario<span class="badge" id="cal-count"></span></button>
+      <button class="rail-backup rail-mid" id="pomo-btn"><svg><use href="#i-timer"/></svg>Pomodoro</button>
       <button class="rail-backup rail-mid" id="stats-btn"><svg><use href="#i-chart"/></svg>Tiempo de estudio</button>
       <button class="rail-backup rail-mid" id="backup-btn"><svg><use href="#i-shield"/></svg>Copia de seguridad</button>
       <input type="file" id="restore-input" hidden>
@@ -68,6 +70,7 @@
           <h1 id="lib-title">Todas las notas</h1>
           <button class="icon-btn" id="subject-menu" aria-label="Opciones de la materia" hidden><svg><use href="#i-dots"/></svg></button>
         </div>
+        <div class="up-events" id="up-events" hidden></div>
         <div class="lib-tools">
           <label class="search"><svg><use href="#i-search"/></svg><input id="search" type="search" placeholder="Buscar notas y títulos" autocomplete="off"></label>
           <div class="seg" role="group" aria-label="Vista">
@@ -200,6 +203,19 @@
       <div class="mt-col" id="mt-right" aria-label="Nombres"></div>
     </div>
     <div class="mt-done" id="mt-done" hidden></div>
+  </section>
+
+  <!-- Calendario -->
+  <section id="calendar" hidden aria-label="Calendario">
+    <header class="rv-top">
+      <button class="icon-btn" id="cal-close" aria-label="Cerrar el calendario"><svg><use href="#i-close"/></svg></button>
+      <div class="rv-title"><b>Calendario</b></div>
+      <button class="primary cal-new" id="cal-new"><svg><use href="#i-plus"/></svg>Nuevo evento</button>
+    </header>
+    <div class="cal-wrap">
+      <div class="cal-month" id="cal-month"></div>
+      <div class="cal-list" id="cal-list"></div>
+    </div>
   </section>
 
   <div class="pomo-pill" id="pomo-pill" hidden>

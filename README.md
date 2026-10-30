@@ -25,6 +25,7 @@ App de notas para la universidad, hecha para tablets Android con lápiz óptico.
 - **Pomodoro**: enfoque y descanso por materia, visible en toda la app y con aviso aunque la pantalla esté apagada
 - **Modo examen**: simulacro con tiempo límite y nota de 0 a 5; lo que no sabías queda para repasar hoy
 - **Tiempo de estudio**: minutos por día y por materia cada semana, y días seguidos estudiando
+- **Calendario** de parciales, quices, entregas y exposiciones por materia: cuenta regresiva, temas que entran, plan de repaso día a día, recordatorios y avisos en el inicio
 - **Copia de seguridad**: un archivo `.notespro` con todas las notas para enviar a Google Drive, correo o WhatsApp;
   copia automática diaria en `Documentos/NotesPro` (últimos 7 días) y restauración que no borra nada
 - **Exportar a PDF** una nota o una materia completa (con portada); el índice de la app se vuelve los marcadores del PDF

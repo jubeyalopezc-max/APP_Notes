@@ -7,6 +7,7 @@ import { createReview } from './review.js';
 import { createMatch } from './match.js';
 import { createPomodoro } from './pomodoro.js';
 import { statsHtml, fmtMin } from './stats.js';
+import { TYPES, REMINDERS, isoDay, daysUntil, countdown, longDate, shortDate, eventTitle, studyPlan, scheduleReminders, cancelReminders, monthHtml } from './calendar.js';
 import { newSrs, isDue } from './srs.js';
 import { buildBackup, backupFileName, backupInfo, markManualBackup, autoBackup, setAutoBackup, readBackup, restoreBackup } from './backup.js';
 
@@ -15,7 +16,7 @@ const SUBJECT_COLORS = ['#2D55E0', '#12968A', '#D9442F', '#E7A21A', '#7A4BD6', '
 
 const MARK_COLORS = ['#D9442F', '#2D55E0', '#1E9E5A', '#E7A21A', '#7A4BD6'];
 
-const state = { subjects: [], notes: [], cards: [], current: 'all', query: '', view: 'notes' };
+const state = { subjects: [], notes: [], cards: [], events: [], current: 'all', query: '', view: 'notes' };
 
 // ---------- Avisos ----------
 let toastTimer;
@@ -106,6 +107,7 @@ async function load() {
   state.subjects = subjects.sort((a, b) => a.createdAt - b.createdAt);
   state.notes = notes;
   state.cards = cards;
+  state.events = await db.all('events');
 }
 
 // ---------- Inicio ----------
@@ -250,7 +252,7 @@ function renderIndexView(list, q) {
   }
 }
 
-function render() { renderRail(); renderNotes(); renderBanner(); renderReviewBtn(); }
+function render() { renderRail(); renderNotes(); renderBanner(); renderReviewBtn(); renderUpcoming(); }
 
 async function newSubject() {
   const r = await dialog(`<h2>Nueva materia</h2>
@@ -851,6 +853,219 @@ $('#pomo-btn').onclick = () => pomodoroDialog();
 $('#pomo-main').onclick = () => pomodoroDialog();
 $('#stats-btn').onclick = statsDialog;
 
+
+// ---------- Calendario ----------
+const subjOf = id => state.subjects.find(s => s.id === id);
+const colorOfEvent = ev => (subjOf(ev.subjectId) || {}).color || '#9AA6B8';
+const evName = ev => eventTitle(ev, subjOf(ev.subjectId));
+const evTopics = ev => (ev.noteIds || []).filter(id => state.notes.some(n => n.id === id));
+const evDone = ev => (ev.doneTopics || []).filter(id => evTopics(ev).includes(id));
+
+function eventsForView() {
+  if (state.current === 'all') return state.events;
+  if (state.current === 'none') return state.events.filter(e => !subjOf(e.subjectId));
+  return state.events.filter(e => e.subjectId === state.current);
+}
+
+// Avisos en el inicio: lo que viene en las próximas 3 semanas.
+function renderUpcoming() {
+  const box = $('#up-events');
+  const soon = eventsForView().filter(e => { const d = daysUntil(e.date); return d >= 0 && d <= 21; })
+    .sort((a, b) => a.date.localeCompare(b.date) || (a.time || '').localeCompare(b.time || '')).slice(0, 3);
+  box.hidden = !soon.length;
+  box.innerHTML = '';
+  for (const ev of soon) {
+    const b = document.createElement('button');
+    b.className = 'up-chip';
+    b.style.setProperty('--c', colorOfEvent(ev));
+    const d = daysUntil(ev.date);
+    b.innerHTML = '<span></span><b></b>';
+    b.querySelector('span').textContent = evName(ev);
+    b.querySelector('b').textContent = countdown(ev.date);
+    if (d > 3) b.querySelector('b').style.color = 'var(--muted)';
+    b.onclick = () => eventDetail(ev);
+    box.appendChild(b);
+  }
+  const week = state.events.filter(e => { const d = daysUntil(e.date); return d >= 0 && d <= 7; }).length;
+  $('#cal-count').textContent = week ? String(week) : '';
+}
+
+const cal = { year: 0, month: 0, selected: null };
+
+function openCalendar() {
+  const d = new Date();
+  cal.year = d.getFullYear(); cal.month = d.getMonth(); cal.selected = null;
+  $('#calendar').hidden = false;
+  renderCalendar();
+}
+function closeCalendar() { $('#calendar').hidden = true; render(); }
+
+function evCard(ev) {
+  const b = document.createElement('button');
+  const d = daysUntil(ev.date);
+  b.className = 'ev-card' + (d < 0 ? ' past' : '');
+  b.style.setProperty('--c', colorOfEvent(ev));
+  const topics = evTopics(ev), done = evDone(ev);
+  const sub = subjOf(ev.subjectId);
+  b.innerHTML = `<span class="ev-top"><span class="ev-title"></span><span class="ev-cd ${d >= 0 && d <= 3 ? 'soon' : ''}"></span></span>
+    <span class="ev-meta"></span>
+    ${topics.length ? `<span class="ev-prog"><span><i style="width:${Math.round(done.length / topics.length * 100)}%"></i></span><span>${done.length} de ${topics.length} tema${topics.length === 1 ? '' : 's'} repasado${topics.length === 1 ? '' : 's'}</span></span>` : ''}`;
+  b.querySelector('.ev-title').textContent = evName(ev);
+  b.querySelector('.ev-cd').textContent = countdown(ev.date);
+  b.querySelector('.ev-meta').textContent = `${longDate(ev.date, ev.time)}${sub && ev.title ? ' · ' + sub.name : ''}`;
+  b.onclick = () => eventDetail(ev);
+  return b;
+}
+
+function renderCalendar() {
+  const monthEvents = state.events;
+  $('#cal-month').innerHTML = monthHtml(cal.year, cal.month, monthEvents, colorOfEvent, cal.selected);
+  const list = $('#cal-list');
+  list.innerHTML = '';
+  const h = t => { const e = document.createElement('h3'); e.className = 'cal-h'; e.textContent = t; list.appendChild(e); };
+  const sorted = state.events.slice().sort((a, b) => a.date.localeCompare(b.date) || (a.time || '').localeCompare(b.time || ''));
+  if (cal.selected) {
+    h(longDate(cal.selected).replace(/^./, c => c.toUpperCase()));
+    const day = sorted.filter(e => e.date === cal.selected);
+    if (!day.length) { const p = document.createElement('p'); p.className = 'cal-empty'; p.textContent = 'No tienes nada este día.'; list.appendChild(p); }
+    day.forEach(e => list.appendChild(evCard(e)));
+    const add = document.createElement('button');
+    add.className = 'secondary';
+    add.innerHTML = '<svg><use href="#i-plus"/></svg>Agregar algo este día';
+    add.onclick = () => eventDialog(null, cal.selected);
+    list.appendChild(add);
+    return;
+  }
+  const up = sorted.filter(e => daysUntil(e.date) >= 0);
+  const week = up.filter(e => daysUntil(e.date) <= 7), later = up.filter(e => daysUntil(e.date) > 7);
+  const past = sorted.filter(e => daysUntil(e.date) < 0).reverse().slice(0, 5);
+  if (!state.events.length) {
+    list.innerHTML = `<div class="empty"><p class="big">Anota tus parciales y entregas.</p><p>Te muestro cuántos días faltan, te armo un plan de repaso con los temas que entran y te aviso antes.</p></div>`;
+    const b = document.createElement('button'); b.className = 'primary'; b.textContent = 'Agregar el primero';
+    b.onclick = () => eventDialog(null); list.querySelector('.empty').appendChild(b);
+    return;
+  }
+  if (week.length) { h('Esta semana'); week.forEach(e => list.appendChild(evCard(e))); }
+  if (later.length) { h('Más adelante'); later.forEach(e => list.appendChild(evCard(e))); }
+  if (!up.length) { h('Próximos'); const p = document.createElement('p'); p.className = 'cal-empty'; p.textContent = 'No tienes nada pendiente.'; list.appendChild(p); }
+  if (past.length) { h('Ya pasaron'); past.forEach(e => list.appendChild(evCard(e))); }
+}
+
+$('#cal-month').addEventListener('click', e => {
+  const m = e.target.closest('[data-month]');
+  if (m) {
+    cal.month += +m.dataset.month;
+    if (cal.month < 0) { cal.month = 11; cal.year--; } else if (cal.month > 11) { cal.month = 0; cal.year++; }
+    cal.selected = null;
+    renderCalendar();
+    return;
+  }
+  const d = e.target.closest('[data-day]');
+  if (d) { cal.selected = cal.selected === d.dataset.day ? null : d.dataset.day; renderCalendar(); }
+});
+$('#cal-btn').onclick = openCalendar;
+$('#cal-close').onclick = closeCalendar;
+$('#cal-new').onclick = () => eventDialog(null, cal.selected);
+
+function topicPicker(subjectId, checked) {
+  const notes = state.notes.filter(n => (subjectId ? n.subjectId === subjectId : !n.subjectId || !subjOf(n.subjectId)))
+    .sort((a, b) => a.createdAt - b.createdAt);
+  if (!notes.length) return '<p class="cal-empty">Esta materia todavía no tiene notas.</p>';
+  return notes.map(n => `<label class="topic"><input type="checkbox" name="topic" value="${n.id}" ${checked.includes(n.id) ? 'checked' : ''}><span>${esc(n.title)}</span><small>${state.cards.filter(c => c.noteId === n.id).length || ''}</small></label>`).join('');
+}
+
+async function eventDialog(ev, presetDate) {
+  const isNew = !ev;
+  const e = ev || { type: 'parcial', subjectId: state.current !== 'all' && state.current !== 'none' ? state.current : (state.subjects[0] || {}).id || '', date: presetDate || isoDay(Date.now() + 7 * 86400000), time: '', title: '', noteIds: [], remind: '1,3' };
+  const r = await dialog(`<h2>${isNew ? 'Nuevo evento' : 'Editar evento'}</h2>
+    <div class="field">Qué es<div class="seg seg-form wrap" role="radiogroup">${Object.entries(TYPES).map(([k, v]) =>
+      `<label><input type="radio" name="type" value="${k}" ${e.type === k ? 'checked' : ''}>${v}</label>`).join('')}</div></div>
+    <label class="field">Materia<select name="subjectId"><option value="">Sin materia</option>${state.subjects.map(s =>
+      `<option value="${s.id}" ${s.id === e.subjectId ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></label>
+    <label class="field">Nombre (opcional)<input type="text" name="title" maxlength="80" value="${esc(e.title || '')}" placeholder="Ej.: Parcial 2, Taller de derivadas"></label>
+    <div class="row2">
+      <label class="field">Fecha<input type="date" name="date" required value="${e.date}"></label>
+      <label class="field">Hora<input type="time" name="time" value="${e.time || ''}"></label>
+    </div>
+    <div class="field">Temas que entran<div class="pick-topics" id="pick-topics">${topicPicker(e.subjectId, e.noteIds || [])}</div></div>
+    <label class="field">Recordarme<select name="remind">${Object.entries(REMINDERS).map(([k, v]) =>
+      `<option value="${k}" ${k === (e.remind ?? '1,3') ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+    ${buttons(isNew ? 'Guardar' : 'Guardar cambios')}`, {
+    wide: true,
+    onOpen: f => {
+      const sel = f.querySelector('select[name=subjectId]');
+      sel.onchange = () => { f.querySelector('#pick-topics').innerHTML = topicPicker(sel.value, []); };
+    },
+  });
+  if (!r) return;
+  if (!r.date) { toast('Elige la fecha.'); return; }
+  const topics = [...$('#dlg-form').querySelectorAll('input[name=topic]:checked')].map(i => i.value);
+  const saved = {
+    ...(ev || { id: uid(), createdAt: Date.now(), doneTopics: [] }),
+    type: r.type || 'parcial', subjectId: r.subjectId || null, title: (r.title || '').trim(),
+    date: r.date, time: r.time || '', noteIds: topics, remind: r.remind ?? '1,3',
+  };
+  saved.doneTopics = (saved.doneTopics || []).filter(id => topics.includes(id));
+  await db.put('events', saved);
+  state.events = state.events.filter(x => x.id !== saved.id).concat(saved);
+  scheduleReminders(saved, evName(saved));
+  toast(isNew ? (daysUntil(saved.date) < 0 ? `${evName(saved)} agregado.` : `${evName(saved)} agregado: ${countdown(saved.date)}.`) : 'Cambios guardados.');
+  if (!$('#calendar').hidden) renderCalendar(); else render();
+}
+
+async function eventDetail(ev) {
+  const topics = evTopics(ev);
+  const pending = topics.filter(id => !evDone(ev).includes(id));
+  const title = n => (state.notes.find(x => x.id === n) || {}).title || '';
+  const plan = studyPlan(ev, pending);
+  const d = daysUntil(ev.date);
+  const cardsOf = ids => state.cards.filter(c => (ids.length ? ids.includes(c.noteId) : state.notes.some(n => n.id === c.noteId && n.subjectId === ev.subjectId)));
+  const nCards = cardsOf(topics).length;
+  const r = await dialog(`<h2>${esc(evName(ev))}</h2>
+    <p class="ev-when">${esc(longDate(ev.date, ev.time).replace(/^./, c => c.toUpperCase()))}. <b>${countdown(ev.date).replace(/^./, c => c.toUpperCase())}</b>.</p>
+    ${topics.length ? `<div class="ev-section">Temas<span id="ev-count">${evDone(ev).length} de ${topics.length} repasado${topics.length === 1 ? '' : 's'}</span></div>
+      <div class="topic-list">${topics.map(id => `<label class="topic"><input type="checkbox" data-topic="${id}" ${evDone(ev).includes(id) ? 'checked' : ''}><span>${esc(title(id))}</span><small>${(k => (k ? `${k} tarjeta${k === 1 ? '' : 's'}` : ''))(state.cards.filter(c => c.noteId === id).length)}</small></label>`).join('')}</div>` : '<p class="cal-empty">No elegiste temas. Edita el evento para agregar las notas que entran y te armo un plan.</p>'}
+    ${d >= 0 && topics.length ? `<div class="ev-section">Plan de repaso</div><div class="plan" id="ev-plan">${planHtml(plan, title)}</div>` : ''}
+    <div class="menu-list" style="margin-top:14px">
+      ${nCards ? `<button value="review">Repasar las tarjetas de estos temas (${nCards})</button><button value="exam">Hacer un examen de práctica</button>` : ''}
+      <button value="edit">Editar</button>
+      <button value="del" class="danger">Eliminar</button>
+    </div>
+    <div class="dlg-actions"><button value="cancel" class="ghost">Cerrar</button></div>`, {
+    wide: true,
+    onOpen: f => {
+      f.querySelectorAll('[data-topic]').forEach(cb => cb.onchange = async () => {
+        const set = new Set(ev.doneTopics || []);
+        cb.checked ? set.add(cb.dataset.topic) : set.delete(cb.dataset.topic);
+        ev.doneTopics = [...set];
+        await db.put('events', ev);
+        f.querySelector('#ev-count').textContent = `${evDone(ev).length} de ${topics.length} repasado${topics.length === 1 ? '' : 's'}`;
+        const pl = f.querySelector('#ev-plan');
+        if (pl) pl.innerHTML = planHtml(studyPlan(ev, topics.filter(id => !evDone(ev).includes(id))), title);
+        if (!$('#calendar').hidden) renderCalendar();
+      });
+    },
+  });
+  if (!$('#calendar').hidden) renderCalendar(); else renderUpcoming();
+  if (!r || !r.action) return;
+  if (r.action === 'edit') eventDialog(ev);
+  else if (r.action === 'del') {
+    if (!await confirmDialog(`¿Eliminar “${evName(ev)}”?`, 'Se borra del calendario junto con sus recordatorios. Tus notas no cambian.', 'Eliminar')) return;
+    await db.del('events', ev.id);
+    cancelReminders(ev);
+    state.events = state.events.filter(x => x.id !== ev.id);
+    if (!$('#calendar').hidden) renderCalendar(); else render();
+  } else if (r.action === 'review') startReview(cardsOf(topics), evName(ev));
+  else if (r.action === 'exam') examDialog(cardsOf(topics), evName(ev), 'event:' + ev.id);
+}
+
+function planHtml(plan, title) {
+  if (!plan.length) return '';
+  const all = plan.every(p => !p.topics.length && p.simulacro);
+  return plan.map(p => `<div class="plan-day ${p.simulacro && !p.topics.length ? 'sim' : ''}"><b>${esc(p.label)}</b><span>${
+    [...p.topics.map(id => esc(title(id))), p.simulacro ? (all ? '¡Ya repasaste todo! Haz un examen de práctica.' : 'Examen de práctica de todo') : ''].filter(Boolean).join(', ')}</span></div>`).join('');
+}
+
 // ---------- Copia de seguridad ----------
 function sinceText(t) {
   if (!t) return null;
@@ -968,6 +1183,7 @@ if (CapApp) {
     if (dlg.open) { dlg.close('cancel'); return; }
     if (review.isOpen) { review.close(); return; }
     if (match.isOpen) { match.close(); return; }
+    if (!$('#calendar').hidden) { closeCalendar(); return; }
     if (editor.isOpen) { if (!editor.deselect()) closeEditor(); return; }
     if (state.current !== 'all') { state.current = 'all'; render(); return; }
     CapApp.exitApp();
