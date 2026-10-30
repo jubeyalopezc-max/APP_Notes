@@ -262,6 +262,167 @@ function detectArrow(p) {
   return { kind: 'arrow', pts: [{ ...s }, snapAngle(s, tip)] };
 }
 
+function finishEllipse(ell) {
+  let { cx, cy, rx, ry, rot } = ell;
+  if (Math.min(rx, ry) / Math.max(rx, ry) > 0.86) {
+    const r = (rx + ry) / 2;
+    return { kind: 'ellipse', cx, cy, rx: r, ry: r, rot: 0 };
+  }
+  const deg = ((rot * 180 / Math.PI) % 180 + 180) % 180;
+  if (deg < SNAP_DEG || deg > 180 - SNAP_DEG) rot = 0;
+  else if (Math.abs(deg - 90) < SNAP_DEG) rot = Math.PI / 2;
+  return { kind: 'ellipse', cx, cy, rx, ry, rot };
+}
+
+// Decide entre óvalo y polígono para un trazo cerrado (ya remuestreado).
+function classifyClosed(rp, diag, ell) {
+  const v = closedVertices(rp, diag);
+  const pErr = v.length >= 3 ? polyError(rp, v) / diag : Infinity;
+  const eErr = ell && ell.coverage > 0.8 ? ell.err / diag : Infinity;
+
+  let useEllipse;
+  if (v.length >= 3 && v.length <= 4) useEllipse = eErr < pErr * 0.7;
+  else if (v.length >= 5 && v.length <= 6) useEllipse = eErr < pErr * 1.3;
+  else useEllipse = true;
+
+  if (useEllipse && eErr < 0.06) return finishEllipse(ell);
+  if (!useEllipse && pErr < 0.045) {
+    let pts;
+    if (v.length === 3) pts = snapPolyEdges(v, true);
+    else if (v.length === 4) pts = cleanQuad(v);
+    else pts = maybeRegular(v);
+    return { kind: 'polygon', pts };
+  }
+  return null;
+}
+
+// Quita ganchos en las puntas: el lapicito que se hace al apoyar o levantar el lápiz.
+function trimHooks(rp) {
+  const n = rp.length, w = 2, lim = Math.floor(n * 0.14);
+  const dir = i => Math.atan2(rp[i + w].y - rp[i].y, rp[i + w].x - rp[i].x);
+  const turn = (a, b) => { let t = Math.abs(a - b) % TAU; return t > Math.PI ? TAU - t : t; };
+  let s = 0, e = n - 1;
+  for (let i = lim; i >= w; i--) if (turn(dir(i - w), dir(i)) > 1.05) { s = i; break; }
+  for (let i = n - 1 - lim; i <= n - 1 - 2 * w; i++) if (turn(dir(i), dir(i + w)) > 1.05) { e = i + w; break; }
+  return e - s > n * 0.6 ? rp.slice(s, e + 1) : rp;
+}
+
+// Ajuste de cónica por mínimos cuadrados: sirve aunque al arco le falte un pedazo.
+function fitConic(p) {
+  let mx = 0, my = 0;
+  for (const q of p) { mx += q.x; my += q.y; }
+  mx /= p.length; my /= p.length;
+  let sc = 0;
+  for (const q of p) sc = Math.max(sc, Math.abs(q.x - mx), Math.abs(q.y - my));
+  if (sc < 1) return null;
+  const A = Array.from({ length: 5 }, () => new Array(6).fill(0));
+  for (const q of p) {
+    const x = (q.x - mx) / sc, y = (q.y - my) / sc;
+    const row = [x * x, x * y, y * y, x, y];
+    for (let i = 0; i < 5; i++) { for (let j = 0; j < 5; j++) A[i][j] += row[i] * row[j]; A[i][5] += row[i]; }
+  }
+  for (let c = 0; c < 5; c++) {
+    let piv = c;
+    for (let r = c + 1; r < 5; r++) if (Math.abs(A[r][c]) > Math.abs(A[piv][c])) piv = r;
+    if (Math.abs(A[piv][c]) < 1e-12) return null;
+    [A[c], A[piv]] = [A[piv], A[c]];
+    for (let r = 0; r < 5; r++) if (r !== c) {
+      const f = A[r][c] / A[c][c];
+      for (let k = c; k < 6; k++) A[r][k] -= f * A[c][k];
+    }
+  }
+  const [a, b, c, dd, e] = A.map((r, i) => r[5] / r[i]);
+  if (b * b - 4 * a * c >= 0) return null; // no es una elipse
+  const det = 4 * a * c - b * b;
+  const x0 = (b * e - 2 * c * dd) / det, y0 = (b * dd - 2 * a * e) / det;
+  const f0 = a * x0 * x0 + b * x0 * y0 + c * y0 * y0 + dd * x0 + e * y0 - 1;
+  const rot = 0.5 * Math.atan2(b, a - c);
+  const co = Math.cos(rot), si = Math.sin(rot);
+  const l1 = a * co * co + b * co * si + c * si * si;
+  const l2 = a * si * si - b * co * si + c * co * co;
+  if (-f0 / l1 <= 0 || -f0 / l2 <= 0) return null;
+  const rx = Math.sqrt(-f0 / l1) * sc, ry = Math.sqrt(-f0 / l2) * sc;
+  const cx = mx + x0 * sc, cy = my + y0 * sc;
+  // Error medio (sin contar el 10 % peor, por si queda algún temblor) y cobertura angular.
+  const cr = Math.cos(-rot), sr = Math.sin(-rot);
+  const res = [], bins = new Array(12).fill(0);
+  for (const q of p) {
+    const x = q.x - cx, y = q.y - cy;
+    const lx = x * cr - y * sr, ly = x * sr + y * cr;
+    res.push(Math.abs(Math.hypot(lx / rx, ly / ry) - 1) * Math.min(rx, ry));
+    bins[Math.floor(((Math.atan2(ly / ry, lx / rx) + TAU) % TAU) / TAU * 12) % 12] = 1;
+  }
+  res.sort((u, v) => u - v);
+  const keep = res.slice(0, Math.ceil(res.length * 0.9));
+  const err = keep.reduce((u, v) => u + v, 0) / keep.length;
+  return { cx, cy, rx, ry, rot, err, coverage: bins.reduce((u, v) => u + v, 0) / 12 };
+}
+
+// Ángulo acumulado que recorre el trazo alrededor de un centro, punto a punto.
+function windingAngles(p, cx, cy) {
+  const out = [0];
+  let prev = Math.atan2(p[0].y - cy, p[0].x - cx), acc = 0;
+  for (let i = 1; i < p.length; i++) {
+    const a = Math.atan2(p[i].y - cy, p[i].x - cx);
+    let da = a - prev;
+    if (da > Math.PI) da -= TAU; else if (da < -Math.PI) da += TAU;
+    acc += da; prev = a; out.push(acc);
+  }
+  return out;
+}
+
+function loopShape(rp0, diag) {
+  const rp = trimHooks(rp0);
+  const b = bbox(rp);
+  const W = windingAngles(rp, b.x0 + b.w / 2, b.y0 + b.h / 2);
+  const total = Math.abs(W[W.length - 1]);
+  // Debe girar siempre hacia el mismo lado (una "S" o un garabato no).
+  let back = 0;
+  for (let i = 1; i < W.length; i++) {
+    const da = (W[i] - W[i - 1]) * Math.sign(W[W.length - 1]);
+    if (da < 0) back -= da;
+  }
+  if (back > 0.6) return null;
+
+  if (total >= TAU * 0.97) {
+    // Dio la vuelta completa o se pasó: se queda con una vuelta y se trata como cerrada.
+    const sgn = Math.sign(W[W.length - 1]);
+    let cut = W.findIndex(a => a * sgn >= TAU);
+    if (cut < 0) cut = W.length - 1;
+    const one = resample(rp.slice(0, cut + 1), 96);
+    const ob = bbox(one), od = Math.hypot(ob.w, ob.h);
+    const r = classifyClosed(one, od, fitEllipse(one));
+    if (r) return r;
+    const ell = fitConic(one);
+    if (ell && ell.err / od < 0.05) return finishEllipse(ell);
+    return null;
+  }
+  if (total >= TAU * 0.7) {
+    // Le falta un pedazo: solo se completa si el arco es claramente un círculo u óvalo.
+    const ell = fitConic(rp);
+    // ¿Tiene esquinas? Entonces es un polígono abierto (un cuadrado o triángulo sin cerrar).
+    const v = rdp(rp, diag * 0.06);
+    if (v.length >= 4 && v.length <= 8) {
+      let pe = 0;
+      for (const q of rp) {
+        let m = Infinity;
+        for (let i = 0; i < v.length - 1; i++) m = Math.min(m, segDist(q, v[i], v[i + 1]));
+        pe += m;
+      }
+      pe /= rp.length;
+      if (!ell || pe < ell.err * 0.8) {
+        const r = classifyClosed(rp, diag, null);
+        return r && r.kind === 'polygon' ? r : null;
+      }
+    }
+    if (!ell || ell.coverage < 0.66 || ell.err / diag > 0.035) return null;
+    // Que la figura completada no sea mucho más grande que lo que se dibujó.
+    if (Math.max(ell.rx, ell.ry) * 2 > diag * 1.15) return null;
+    return finishEllipse(ell);
+  }
+  return null;
+}
+
 export function recognize(raw) {
   const p = [];
   for (const q of raw) if (!p.length || d(p[p.length - 1], q) > 0.5) p.push({ x: q.x, y: q.y });
@@ -280,39 +441,18 @@ export function recognize(raw) {
   if (arrow) return arrow;
 
   const closed = gap < diag * 0.22 || gap / L < 0.1;
-  const rp = resample(p, 96);
+  let rp = resample(p, 96);
 
   if (closed) {
-    const ell = fitEllipse(rp);
-    const v = closedVertices(rp, diag);
-    const pErr = v.length >= 3 ? polyError(rp, v) / diag : Infinity;
-    const eErr = ell && ell.coverage > 0.8 ? ell.err / diag : Infinity;
-
-    let useEllipse;
-    if (v.length >= 3 && v.length <= 4) useEllipse = eErr < pErr * 0.7;
-    else if (v.length >= 5 && v.length <= 6) useEllipse = eErr < pErr * 1.3;
-    else useEllipse = true;
-
-    if (useEllipse && eErr < 0.06) {
-      let { cx, cy, rx, ry, rot } = ell;
-      if (Math.min(rx, ry) / Math.max(rx, ry) > 0.86) {
-        const r = (rx + ry) / 2;
-        return { kind: 'ellipse', cx, cy, rx: r, ry: r, rot: 0 };
-      }
-      const deg = ((rot * 180 / Math.PI) % 180 + 180) % 180;
-      if (deg < SNAP_DEG || deg > 180 - SNAP_DEG) rot = 0;
-      else if (Math.abs(deg - 90) < SNAP_DEG) rot = Math.PI / 2;
-      return { kind: 'ellipse', cx, cy, rx, ry, rot };
-    }
-    if (!useEllipse && pErr < 0.045) {
-      let pts;
-      if (v.length === 3) pts = snapPolyEdges(v, true);
-      else if (v.length === 4) pts = cleanQuad(v);
-      else pts = maybeRegular(v);
-      return { kind: 'polygon', pts };
-    }
-    return null;
+    const r = classifyClosed(rp, diag, fitEllipse(rp));
+    if (r) return r;
   }
+
+  // Trazo que da la vuelta pero no cierra bien: quedó un hueco, se pasó del inicio
+  // o tiene ganchos en las puntas. Se recorta y se vuelve a intentar como figura cerrada.
+  const loop = loopShape(rp, diag);
+  if (loop) return loop;
+  if (closed) return null;
 
   // Abierta: líneas quebradas (por ejemplo, ejes en "L" o un zigzag).
   const v = rdp(p, diag * 0.06);
