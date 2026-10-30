@@ -26,6 +26,7 @@ App de notas para la universidad, hecha para tablets Android con lápiz óptico.
 - **Modo examen**: simulacro con tiempo límite y nota de 0 a 5; lo que no sabías queda para repasar hoy
 - **Tiempo de estudio**: minutos por día y por materia cada semana, y días seguidos estudiando
 - **Calendario** de parciales, quices, entregas y exposiciones por materia: cuenta regresiva, temas que entran, plan de repaso día a día, recordatorios y avisos en el inicio
+- **Grabar la clase** sincronizado con lo que escribes: al escuchar, tocas cualquier parte de tus apuntes y suena ese momento; lo escrito después se ve tenue y aparece a medida que avanza el audio
 - **Papelera**: las notas eliminadas se guardan 30 días antes de borrarse
 - **Abrir con NotesPro**: los PDF que te mandan por WhatsApp, Drive o correo se abren directo en la app
 - **Modo oscuro** automático, claro u oscuro, con hojas oscuras y tinta clara para escribir de noche (el PDF sale normal)

@@ -2,7 +2,8 @@ import {
   PAGE_W, PAGE_H, PAGE_GAP, pageTop, PAPERS, drawPaper, drawPaperArea, drawItem, bounds, hits, translated, MARK_W, MARK_H, textLines, setInkDark,
 } from './render.js';
 import { recognize, describeShape } from './shapes.js';
-import { uid } from './db.js';
+import { uid, db } from './db.js';
+import { startRecording, recordingSupported, fmtClock } from './recorder.js';
 
 const PEN_COLORS = ['#18202E', '#2D55E0', '#D9442F', '#1E9E5A', '#7A4BD6', '#E08A12'];
 const HL_COLORS = ['#FFE14D', '#7EF29A', '#FF9EC7', '#8FD3FF', '#FFB86B'];
@@ -34,7 +35,7 @@ function loadSettings() {
 }
 function saveSettings(s) { try { localStorage.setItem('np-settings', JSON.stringify(s)); } catch {} }
 
-export function createEditor({ onSave, onClose, toast, askMark, onCapture, isDarkPaper }) {
+export function createEditor({ onSave, onClose, toast, askMark, onCapture, isDarkPaper, confirmAsk }) {
   const darkPaper = () => !!(isDarkPaper && isDarkPaper());
   const stage = $('#stage');
   const cvMain = $('#cv-main');
@@ -313,7 +314,11 @@ export function createEditor({ onSave, onClose, toast, askMark, onCapture, isDar
       if (editingText && it === editingText.item) continue;
       const b = bounds(it);
       if (b.y1 < vy0 || b.y0 > vy1 || b.x1 < vx0 || b.x0 > vx1) continue;
+      // Al escuchar una grabación, lo que se escribió más adelante se ve tenue.
+      const later = pb && it.rec === pb.id && it.t > pb.time;
+      if (later) ctx.globalAlpha = 0.16;
       drawItem(ctx, it, redraw);
+      if (later) ctx.globalAlpha = 1;
     }
     drawCovers(ctx, vx0, vy0, vx1, vy1);
     updateZoomUI();
@@ -663,7 +668,7 @@ export function createEditor({ onSave, onClose, toast, askMark, onCapture, isDar
     editingText = null;
     const text = el.value.replace(/\s+$/, '');
     el.remove();
-    if (isNew && text) { pushUndo(); items.push({ ...item, text }); changed(); }
+    if (isNew && text) { pushUndo(); items.push(tag({ ...item, text })); changed(); }
     else if (!isNew && text !== item.text) {
       pushUndo();
       const i = items.indexOf(item);
@@ -684,7 +689,7 @@ export function createEditor({ onSave, onClose, toast, askMark, onCapture, isDar
       const maxW = PAGE_W * 0.7;
       const k = Math.min(1, maxW / w, (PAGE_H * 0.6) / h);
       const iw = w * k, ih = h * k;
-      const it = { id: uid(), type: 'image', src, x: layout === 'canvas' ? center.x - iw / 2 : Math.max(20, center.x - iw / 2), y: center.y - ih / 2, w: iw, h: ih };
+      const it = tag({ id: uid(), type: 'image', src, x: layout === 'canvas' ? center.x - iw / 2 : Math.max(20, center.x - iw / 2), y: center.y - ih / 2, w: iw, h: ih });
       pushUndo();
       items.push(it);
       changed();
@@ -760,7 +765,7 @@ export function createEditor({ onSave, onClose, toast, askMark, onCapture, isDar
       if (selected.length) setSelection([]);
       const st = currentStyle();
       Object.assign(action, {
-        kind: 'draw', tool, color: st.color, width: st.width,
+        kind: 'draw', tool, color: st.color, width: st.width, t0: performance.now(),
         pts: [p.x, p.y, pressureOf(e)], raw: [{ x: p.x, y: p.y }],
         last: { x: e.clientX, y: e.clientY }, shape: null,
       });
@@ -900,7 +905,12 @@ export function createEditor({ onSave, onClose, toast, askMark, onCapture, isDar
   }
 
   function commitStroke(a) {
-    const stroke = { id: uid(), ...liveStroke(a) };
+    // Escuchando: un toque sobre lo escrito lleva a ese momento del audio (no deja un punto).
+    if (pb && !player.hidden && isTap(a)) {
+      const hit = recordedAt(a.raw[0]);
+      if (hit) { listenAt(hit); return; }
+    }
+    const stroke = tag({ id: uid(), ...liveStroke(a) });
     let shape = a.shape;
     if (!shape && a.tool === 'magic') {
       shape = recognize(a.raw);
@@ -911,7 +921,7 @@ export function createEditor({ onSave, onClose, toast, askMark, onCapture, isDar
     if (shape) {
       // Primero se guarda el trazo original: "Deshacer" lo recupera.
       pushUndo();
-      items[items.length - 1] = shapeItem(shape, a);
+      items[items.length - 1] = tag(shapeItem(shape, a), stroke);
       toast(`Figura: ${describeShape(shape)}. Deshacer recupera tu trazo.`);
     }
     changed();
@@ -1392,6 +1402,201 @@ export function createEditor({ onSave, onClose, toast, askMark, onCapture, isDar
   $('#study-done').onclick = () => toggleStudy(false);
   $('#study-hl').onchange = e => { S.coverHl = e.target.checked; saveSettings(S); revealed.clear(); updateStudyBar(); redraw(); };
 
+
+  // ---------- Grabación de la clase ----------
+  const audioBtn = $('#ed-audio'), recBar = $('#rec-bar'), recTimeEl = $('#rec-time'), recPauseBtn = $('#rec-pause');
+  const player = $('#player'), plPlay = $('#pl-play'), plSeek = $('#pl-seek'), plTime = $('#pl-time'), plSpeed = $('#pl-speed'), plSel = $('#pl-select');
+  const audioEl = new Audio();
+  audioEl.preload = 'auto';
+  let rec = null, recMeta = null, recTick = null;
+  let recordings = [];
+  let pb = null;            // grabación que se está escuchando: { id, url, duration, time }
+  let speed = 1;
+
+  const recTitle = r => `Grabación del ${new Date(r.createdAt).toLocaleString('es-CO', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}`;
+
+  // Marca un elemento con el momento del audio en que se escribió.
+  function tag(it, from) {
+    if (from && from.rec) { it.rec = from.rec; it.t = from.t; return it; }
+    if (rec && recMeta) { it.rec = recMeta.id; it.t = Math.round(rec.elapsed()); }
+    return it;
+  }
+
+  async function loadRecordings() {
+    recordings = note ? (await db.byIndex('audio', 'noteId', note.id)).sort((a, b) => a.createdAt - b.createdAt) : [];
+    updateAudioBtn();
+  }
+
+  function updateAudioBtn() {
+    const lbl = audioBtn.querySelector('.lbl');
+    audioBtn.classList.toggle('recording', !!rec);
+    audioBtn.setAttribute('aria-pressed', String(!!rec || !player.hidden));
+    lbl.textContent = rec ? 'Grabando' : recordings.length ? `Audio (${recordings.length})` : 'Grabar';
+    audioBtn.title = rec ? 'Grabando la clase' : recordings.length ? 'Escuchar las grabaciones de esta nota' : 'Grabar la clase';
+  }
+
+  async function startRec() {
+    if (rec) return;
+    if (!recordingSupported()) { toast('Este dispositivo no permite grabar audio desde la app.', { long: true }); return; }
+    closePlayer();
+    const meta = { id: uid(), noteId: note.id, createdAt: Date.now() };
+    try {
+      rec = await startRecording({
+        onPartial: (blob, ms) => db.put('audio', { ...meta, blob, mime: blob.type, duration: ms, partial: true }).then(loadRecordings),
+      });
+    } catch (e) {
+      rec = null;
+      toast(e.message, { long: true });
+      return;
+    }
+    recMeta = meta;
+    recBar.hidden = false;
+    recPauseBtn.textContent = 'Pausar';
+    clearInterval(recTick);
+    const upd = () => { if (rec) recTimeEl.textContent = fmtClock(rec.elapsed()); };
+    upd();
+    recTick = setInterval(upd, 500);
+    updateAudioBtn();
+    toast('Grabando. Lo que escribas queda sincronizado con el audio. Deja NotesPro abierta mientras grabas.', { long: true });
+  }
+
+  async function stopRec(silent) {
+    if (!rec) return;
+    const r = rec, meta = recMeta;
+    rec = null; recMeta = null;
+    clearInterval(recTick);
+    recBar.hidden = true;
+    const { blob, duration, mime } = await r.stop();
+    if (duration < 1500 || !blob.size) {
+      await db.del('audio', meta.id);
+      if (!silent) toast('La grabación fue muy corta y no se guardó.');
+    } else {
+      await db.put('audio', { ...meta, blob, mime, duration });
+      if (!silent) toast(`Grabación guardada (${fmtClock(duration)}). Toca Audio y luego lo que escribiste para oír ese momento.`, { long: true });
+    }
+    await loadRecordings();
+  }
+
+  function toggleRecPause() {
+    if (!rec) return;
+    if (rec.paused) { rec.resume(); recPauseBtn.textContent = 'Pausar'; recBar.classList.remove('paused'); }
+    else { rec.pause(); recPauseBtn.textContent = 'Seguir'; recBar.classList.add('paused'); }
+  }
+
+  // ---------- Escuchar ----------
+  function openPlayer(id) {
+    const r = recordings.find(x => x.id === id) || recordings[recordings.length - 1];
+    if (!r) return;
+    if (!pb || pb.id !== r.id) {
+      audioEl.pause();
+      if (pb) URL.revokeObjectURL(pb.url);
+      pb = { id: r.id, url: URL.createObjectURL(r.blob), duration: r.duration, time: 0 };
+      audioEl.src = pb.url;
+      audioEl.playbackRate = speed;
+    }
+    plSel.innerHTML = recordings.map(x => `<option value="${x.id}" ${x.id === r.id ? 'selected' : ''}>${recTitle(x)} (${fmtClock(x.duration)})${x.partial ? ' sin terminar' : ''}</option>`).join('');
+    plSel.hidden = recordings.length < 2;
+    if (player.hidden && window.innerWidth < 760) toast('Toca lo que escribiste para oír ese momento.');
+    player.hidden = false;
+    stage.classList.add('playing');
+    document.body.classList.add('player-on');
+    updatePlayer();
+    updateAudioBtn();
+    redraw();
+  }
+
+  function closePlayer() {
+    audioEl.pause();
+    player.hidden = true;
+    stage.classList.remove('playing');
+    if (pb) { URL.revokeObjectURL(pb.url); pb = null; }
+    document.body.classList.remove('player-on');
+    updateAudioBtn();
+    redraw();
+  }
+
+  function updatePlayer() {
+    if (!pb) return;
+    plTime.textContent = `${fmtClock(pb.time)} / ${fmtClock(pb.duration)}`;
+    plSeek.value = String(Math.round((pb.time / Math.max(1, pb.duration)) * 1000));
+    const playing = !audioEl.paused && !audioEl.ended;
+    plPlay.innerHTML = `<svg><use href="#i-${playing ? 'pause' : 'play'}"/></svg>`;
+    plPlay.setAttribute('aria-label', playing ? 'Pausar' : 'Reproducir');
+    plSpeed.textContent = `${String(speed).replace('.', ',')}x`;
+  }
+
+  function seek(ms) {
+    if (!pb) return;
+    pb.time = Math.max(0, Math.min(pb.duration, ms));
+    try { audioEl.currentTime = pb.time / 1000; } catch {}
+    updatePlayer();
+    redraw();
+  }
+
+  const isTap = a => a.raw.length <= 4 && performance.now() - a.t0 < 400;
+
+  // El elemento grabado más cercano bajo el dedo o el lápiz.
+  function recordedAt(p) {
+    const ids = new Set(recordings.map(r => r.id));
+    for (let i = items.length - 1; i >= 0; i--) {
+      const it = items[i];
+      if (it.rec && ids.has(it.rec) && hits(it, p.x, p.y, 14 / view.s)) return it;
+    }
+    return null;
+  }
+
+  function listenAt(it) {
+    if (!pb || pb.id !== it.rec) openPlayer(it.rec);
+    seek(it.t - 2000); // un poco antes, para oír el contexto
+    audioEl.play().catch(() => {});
+    flash = { b: bounds(it), t0: performance.now() };
+    const loop = () => { paintLive(); if (flash) requestAnimationFrame(loop); };
+    requestAnimationFrame(loop);
+  }
+
+  let lastDraw = 0;
+  audioEl.addEventListener('timeupdate', () => {
+    if (!pb) return;
+    pb.time = audioEl.currentTime * 1000;
+    updatePlayer();
+    const now = performance.now();
+    if (now - lastDraw > 200) { lastDraw = now; redraw(); }
+  });
+  audioEl.addEventListener('play', updatePlayer);
+  audioEl.addEventListener('pause', updatePlayer);
+  audioEl.addEventListener('ended', () => { if (pb) pb.time = pb.duration; updatePlayer(); redraw(); });
+
+  plPlay.onclick = () => { if (audioEl.paused) { if (pb && pb.time >= pb.duration - 200) seek(0); audioEl.play().catch(() => {}); } else audioEl.pause(); };
+  $('#pl-back').onclick = () => seek((pb ? pb.time : 0) - 10000);
+  $('#pl-fwd').onclick = () => seek((pb ? pb.time : 0) + 10000);
+  plSeek.addEventListener('input', () => { if (pb) seek((+plSeek.value / 1000) * pb.duration); });
+  plSpeed.onclick = () => {
+    const opts = [1, 1.25, 1.5, 2];
+    speed = opts[(opts.indexOf(speed) + 1) % opts.length];
+    audioEl.playbackRate = speed;
+    updatePlayer();
+  };
+  plSel.onchange = () => openPlayer(plSel.value);
+  $('#pl-close').onclick = closePlayer;
+  $('#pl-rec').onclick = () => startRec();
+  $('#pl-del').onclick = async () => {
+    if (!pb) return;
+    const r = recordings.find(x => x.id === pb.id);
+    if (!r || !confirmAsk || !await confirmAsk(r)) return;
+    await db.del('audio', r.id);
+    closePlayer();
+    await loadRecordings();
+    toast('Grabación eliminada. Lo que escribiste no cambia.');
+  };
+  audioBtn.onclick = () => {
+    if (rec) { toggleRecPause(); return; }
+    if (!player.hidden) { closePlayer(); return; }
+    if (recordings.length) openPlayer();
+    else startRec();
+  };
+  recPauseBtn.onclick = toggleRecPause;
+  $('#rec-stop').onclick = () => stopRec();
+
   // ---------- Barra de herramientas ----------
   function setTool(t) {
     if (t === 'image') { pickImage(); return; }
@@ -1548,6 +1753,8 @@ export function createEditor({ onSave, onClose, toast, askMark, onCapture, isDar
       setTool(S.tool === 'image' ? 'pen' : S.tool);
       ixPanel.hidden = true; ixBtn.setAttribute('aria-pressed', 'false');
       stage.classList.remove('ix-open');
+      recordings = []; player.hidden = true; stage.classList.remove('playing');
+      loadRecordings();
       requestAnimationFrame(() => {
         resize(); fitWidth(); clampView();
         if (focus) jumpTo(focus, focus.id, true);
@@ -1556,6 +1763,8 @@ export function createEditor({ onSave, onClose, toast, askMark, onCapture, isDar
     },
     async close() {
       finishText();
+      await stopRec();
+      closePlayer();
       await save();
       note = null;
       items = [];
@@ -1565,6 +1774,10 @@ export function createEditor({ onSave, onClose, toast, askMark, onCapture, isDar
     get paper() { return paper; },
     get layout() { return layout; },
     get pageCount() { return pages; },
+    toggleFinger() { $('#ed-finger').click(); },
+    get fingerDraws() { return !!S.fingerDraw; },
+    get recording() { return !!rec; },
+    stopRecording: () => stopRec(),
     refresh() { mmStale = true; if (!ov.hidden) renderOverview(); redraw(); },
     setCaptureHint,
     get studying() { return studying; },
@@ -1582,7 +1795,7 @@ export function createEditor({ onSave, onClose, toast, askMark, onCapture, isDar
     addPage,
     save,
     get isOpen() { return !!note; },
-    deselect() { if (!captureHint.hidden) { captureHint.querySelector('button').click(); return true; } if (studying) { toggleStudy(false); return true; } if (!ixPanel.hidden) { toggleIndex(false); return true; } if (!ov.hidden) { closeOverview(); redraw(); return true; } if (selected.length) { setSelection([]); return true; } if (editingText) { finishText(); return true; } return false; },
+    deselect() { if (!player.hidden) { closePlayer(); return true; } if (!captureHint.hidden) { captureHint.querySelector('button').click(); return true; } if (studying) { toggleStudy(false); return true; } if (!ixPanel.hidden) { toggleIndex(false); return true; } if (!ov.hidden) { closeOverview(); redraw(); return true; } if (selected.length) { setSelection([]); return true; } if (editingText) { finishText(); return true; } return false; },
   };
 }
 

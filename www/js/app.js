@@ -9,7 +9,7 @@ import { createPomodoro } from './pomodoro.js';
 import { statsHtml, fmtMin } from './stats.js';
 import { TYPES, REMINDERS, isoDay, daysUntil, countdown, longDate, shortDate, eventTitle, studyPlan, scheduleReminders, cancelReminders, monthHtml } from './calendar.js';
 import { newSrs, isDue } from './srs.js';
-import { buildBackup, backupFileName, backupInfo, markManualBackup, autoBackup, setAutoBackup, readBackup, restoreBackup } from './backup.js';
+import { buildBackup, audioSize, backupFileName, backupInfo, markManualBackup, autoBackup, setAutoBackup, readBackup, restoreBackup } from './backup.js';
 
 const $ = s => document.querySelector(s);
 const SUBJECT_COLORS = ['#2D55E0', '#12968A', '#D9442F', '#E7A21A', '#7A4BD6', '#1E9E5A', '#D23D86', '#46566F'];
@@ -121,6 +121,7 @@ const TRASH_DAYS = 30;
 async function purgeNote(n, cards = state.cards) {
   await db.del('notes', n.id);
   await db.del('contents', n.id);
+  for (const a of await db.byIndex('audio', 'noteId', n.id)) await db.del('audio', a.id);
   for (const c of cards.filter(c => c.noteId === n.id)) await db.del('cards', c.id);
 }
 async function load() {
@@ -395,6 +396,7 @@ async function renameNote(n) {
 let openMeta = null;
 const editor = createEditor({
   toast,
+  confirmAsk: () => confirmDialog('¿Eliminar esta grabación?', 'Se borra el audio. Lo que escribiste en la nota no cambia.', 'Eliminar grabación'),
   isDarkPaper: () => isDarkTheme() && theme.darkSheets,
   askMark,
   onCapture: captureForCard,
@@ -435,7 +437,7 @@ async function editorMore() {
   const act = await dialog(`<h2>Opciones de la nota</h2>
     <div class="field">Fondo<div class="paper-pick">${Object.entries(PAPERS).map(([k, v]) =>
       `<label><input type="radio" name="paper" value="${k}" ${editor.paper === k ? 'checked' : ''}><span class="paper-swatch ${k}"></span>${v}</label>`).join('')}</div></div>
-    <div class="menu-list"><button value="all">Ver toda la nota</button>${editor.layout === 'pages' ? '<button value="page">Agregar página al final</button>' : ''}<button value="rename">Cambiar título</button><button value="pdf">Exportar a PDF</button><button value="addpdf">Agregar páginas de un PDF</button><button value="write">Escribir tarjetas (nombre y definición)</button><button value="pomo">Pomodoro</button>${state.cards.some(c => c.noteId === openMeta.id) ? '<button value="review">Repasar las tarjetas de esta nota</button><button value="match">Unir parejas con esta nota</button>' : ''}</div>
+    <div class="menu-list"><button value="all">Ver toda la nota</button>${editor.layout === 'pages' ? '<button value="page">Agregar página al final</button>' : ''}<button value="rename">Cambiar título</button><button value="pdf">Exportar a PDF</button><button value="addpdf">Agregar páginas de un PDF</button><button value="write">Escribir tarjetas (nombre y definición)</button><button value="pomo">Pomodoro</button>${window.innerWidth < 760 ? `<button value="finger">${editor.fingerDraws ? 'El dedo dibuja: cambiar a mover la página' : 'El dedo mueve la página: cambiar a dibujar'}</button>` : ''}${state.cards.some(c => c.noteId === openMeta.id) ? '<button value="review">Repasar las tarjetas de esta nota</button><button value="match">Unir parejas con esta nota</button>' : ''}</div>
     <div class="dlg-actions"><button value="cancel" class="ghost">Cerrar</button><button value="ok" class="primary">Aplicar fondo</button></div>`);
   if (!act) return;
   if (act.action === 'pdf') { await editor.save(); exportNotesPdf([openMeta]); }
@@ -444,6 +446,7 @@ async function editorMore() {
   else if (act.action === 'match') { await editor.save(); startMatch(state.cards.filter(c => c.noteId === openMeta.id), openMeta.title, 'note:' + openMeta.id); }
   else if (act.action === 'write') writeCards();
   else if (act.action === 'pomo') pomodoroDialog(openMeta.subjectId);
+  else if (act.action === 'finger') editor.toggleFinger();
   else if (act.action === 'all') editor.showAll();
   else if (act.action === 'page') editor.addPage();
   else if (act.action === 'rename') renameNote(openMeta);
@@ -1231,6 +1234,7 @@ function sinceText(t) {
 
 async function backupDialog() {
   const info = backupInfo();
+  const aud = await audioSize();
   const manual = sinceText(info.manual), auto = sinceText(info.auto);
   const status = manual ? `Tu última copia fue ${manual}.` : 'Todavía no has hecho ninguna copia.';
   const r = await dialog(`<h2>Copia de seguridad</h2>
@@ -1239,6 +1243,7 @@ async function backupDialog() {
       <button value="backup"><span>Hacer copia ahora</span><small>Crea un archivo con todas tus notas y te deja enviarlo a Google Drive, tu correo o WhatsApp.</small></button>
       <button value="restore"><span>Restaurar desde un archivo</span><small>Agrega las notas de una copia. No borra nada de lo que ya tienes.</small></button>
     </div>
+    ${aud.count ? `<label class="check"><input type="checkbox" name="audio" ${aud.bytes < 80e6 ? 'checked' : ''}><span>Incluir ${aud.count === 1 ? 'la grabación' : `las ${aud.count} grabaciones`} de clase (${Math.max(1, Math.round(aud.bytes / 1e6))} MB). Si pesan mucho, la copia tarda más en enviarse.</span></label>` : ''}
     ${isNative ? `<label class="check"><input type="checkbox" name="auto" ${info.autoOff ? '' : 'checked'}><span>Copia automática diaria en ${DEVICE_FOLDER}${auto ? ` (la última fue ${auto})` : ''}. Se guardan las de los últimos 7 días.</span></label>` : ''}
     <div class="dlg-actions"><button value="ok" class="ghost">Cerrar</button></div>`, {
     onOpen: f => {
@@ -1247,15 +1252,15 @@ async function backupDialog() {
     },
   });
   if (!r) return;
-  if (r.action === 'backup') makeBackup();
+  if (r.action === 'backup') makeBackup(r.audio === 'on');
   else if (r.action === 'restore') { const i = $('#restore-input'); i.value = ''; i.click(); }
 }
 
-function makeBackup() {
+function makeBackup(withAudio = false) {
   return withBusy(async () => {
     try {
       toast('Preparando la copia…', { sticky: true });
-      const { blob, notes } = await buildBackup();
+      const { blob, notes } = await buildBackup({ withAudio });
       if (!notes) { toast('Todavía no hay notas para respaldar.'); return; }
       const name = backupFileName();
       await saveToDevice(blob, name);
@@ -1288,6 +1293,7 @@ $('#restore-input').addEventListener('change', async e => {
     const parts = [];
     if (r.added) parts.push(`${r.added} nota${r.added === 1 ? '' : 's'} agregada${r.added === 1 ? '' : 's'}`);
     if (r.updated) parts.push(`${r.updated} actualizada${r.updated === 1 ? '' : 's'}`);
+    if (r.audio) parts.push(`${r.audio} ${r.audio === 1 ? 'grabación' : 'grabaciones'}`);
     if (r.cards) parts.push(`${r.cards} tarjeta${r.cards === 1 ? '' : 's'} de estudio`);
     toast(parts.length ? `Copia restaurada: ${parts.join(', ')}.` : 'Ya tenías todo lo que hay en esa copia.', { long: true });
   });

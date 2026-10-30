@@ -2,7 +2,7 @@
 // subjects: materias · notes: datos de cada nota (sin el contenido) · contents: trazos, imágenes y texto de cada nota
 
 const DB_NAME = 'notespro';
-const DB_VERSION = 4; // 2: tarjetas · 3: sesiones de estudio · 4: calendario
+const DB_VERSION = 5; // 2: tarjetas · 3: sesiones de estudio · 4: calendario · 5: grabaciones
 let dbPromise = null;
 
 function open() {
@@ -26,6 +26,10 @@ function open() {
         t.createIndex('start', 'start');
       }
       if (!db.objectStoreNames.contains('events')) db.createObjectStore('events', { keyPath: 'id' });
+      if (!db.objectStoreNames.contains('audio')) {
+        const a = db.createObjectStore('audio', { keyPath: 'id' });
+        a.createIndex('noteId', 'noteId');
+      }
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -46,7 +50,16 @@ function tx(store, mode, fn) {
   }));
 }
 
+function byIndex(store, index, value) {
+  return open().then(d => new Promise((resolve, reject) => {
+    const r = d.transaction(store, 'readonly').objectStore(store).index(index).getAll(value);
+    r.onsuccess = () => resolve(r.result);
+    r.onerror = () => reject(r.error);
+  }));
+}
+
 export const db = {
+  byIndex,
   all: (store) => tx(store, 'readonly', s => s.getAll()),
   get: (store, id) => tx(store, 'readonly', s => s.get(id)),
   put: (store, value) => tx(store, 'readwrite', s => s.put(value)),

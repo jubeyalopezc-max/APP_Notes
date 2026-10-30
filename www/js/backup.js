@@ -13,9 +13,31 @@ function setInfo(patch) {
   try { localStorage.setItem(KEY, JSON.stringify({ ...backupInfo(), ...patch })); } catch {}
 }
 
-export async function buildBackup() {
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result));
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(blob);
+  });
+}
+
+/** Cuánto pesan las grabaciones de clase (para decidir si van en la copia). */
+export async function audioSize() {
+  const list = await db.all('audio');
+  return { count: list.length, bytes: list.reduce((a, x) => a + (x.blob ? x.blob.size : 0), 0) };
+}
+
+export async function buildBackup({ withAudio = false } = {}) {
   const [subjects, notes, contents, cards, sessions, events] = await Promise.all([db.all('subjects'), db.all('notes'), db.all('contents'), db.all('cards'), db.all('sessions'), db.all('events')]);
-  const data = { app: 'NotesPro', version: 4, createdAt: Date.now(), subjects, notes, contents, cards, sessions, events };
+  const data = { app: 'NotesPro', version: 5, createdAt: Date.now(), subjects, notes, contents, cards, sessions, events };
+  if (withAudio) {
+    data.audio = [];
+    for (const a of await db.all('audio')) {
+      const { blob, ...rest } = a;
+      if (blob) data.audio.push({ ...rest, data: await blobToDataUrl(blob) });
+    }
+  }
   return { blob: new Blob([JSON.stringify(data)], { type: 'application/octet-stream' }), subjects: subjects.length, notes: notes.length };
 }
 
@@ -94,11 +116,21 @@ export async function restoreBackup(data) {
     if (mineSessions.has(x.id)) continue;
     await db.put('sessions', { ...x, subjectId: remap.get(x.subjectId) || x.subjectId });
   }
+  // Grabaciones de clase (si la copia las incluye).
+  const mineAudio = new Set((await db.all('audio')).map(x => x.id));
+  let audio = 0;
+  for (const a of data.audio || []) {
+    if (mineAudio.has(a.id) || !a.data) continue;
+    const { data: url, ...rest } = a;
+    const blob = await (await fetch(url)).blob();
+    await db.put('audio', { ...rest, blob });
+    audio++;
+  }
   // Calendario (versión 4 en adelante).
   const mineEvents = new Set((await db.all('events')).map(x => x.id));
   for (const x of data.events || []) {
     if (mineEvents.has(x.id)) continue;
     await db.put('events', { ...x, subjectId: remap.get(x.subjectId) || x.subjectId });
   }
-  return { added, updated, newSubjects, cards };
+  return { added, updated, newSubjects, cards, audio };
 }
