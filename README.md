@@ -22,6 +22,9 @@ App de notas para la universidad, hecha para tablets Android con lápiz óptico.
 - **Flashcards** creadas desde la nota (también sobre PDF importados), con repaso por repetición espaciada y acceso directo a la parte de la nota de donde salió cada tarjeta
 - **Unir parejas**: juego de relacionar columnas (definición con nombre) contra el reloj, con las tarjetas de una materia o de un tema
 - **Escribir tarjetas** rápido: nombre o término y definición, fila por fila
+- **Pomodoro**: enfoque y descanso por materia, visible en toda la app y con aviso aunque la pantalla esté apagada
+- **Modo examen**: simulacro con tiempo límite y nota de 0 a 5; lo que no sabías queda para repasar hoy
+- **Tiempo de estudio**: minutos por día y por materia cada semana, y días seguidos estudiando
 - **Copia de seguridad**: un archivo `.notespro` con todas las notas para enviar a Google Drive, correo o WhatsApp;
   copia automática diaria en `Documentos/NotesPro` (últimos 7 días) y restauración que no borra nada
 - **Exportar a PDF** una nota o una materia completa (con portada); el índice de la app se vuelve los marcadores del PDF

@@ -5,6 +5,8 @@ import { PAGE_H, PAGE_GAP } from './render.js';
 import { shareFile, saveToDevice, isNative, DEVICE_FOLDER } from './files.js';
 import { createReview } from './review.js';
 import { createMatch } from './match.js';
+import { createPomodoro } from './pomodoro.js';
+import { statsHtml, fmtMin } from './stats.js';
 import { newSrs, isDue } from './srs.js';
 import { buildBackup, backupFileName, backupInfo, markManualBackup, autoBackup, setAutoBackup, readBackup, restoreBackup } from './backup.js';
 
@@ -396,7 +398,7 @@ async function editorMore() {
   const act = await dialog(`<h2>Opciones de la nota</h2>
     <div class="field">Fondo<div class="paper-pick">${Object.entries(PAPERS).map(([k, v]) =>
       `<label><input type="radio" name="paper" value="${k}" ${editor.paper === k ? 'checked' : ''}><span class="paper-swatch ${k}"></span>${v}</label>`).join('')}</div></div>
-    <div class="menu-list"><button value="all">Ver toda la nota</button>${editor.layout === 'pages' ? '<button value="page">Agregar página al final</button>' : ''}<button value="rename">Cambiar título</button><button value="pdf">Exportar a PDF</button><button value="addpdf">Agregar páginas de un PDF</button><button value="write">Escribir tarjetas (nombre y definición)</button>${state.cards.some(c => c.noteId === openMeta.id) ? '<button value="review">Repasar las tarjetas de esta nota</button><button value="match">Unir parejas con esta nota</button>' : ''}</div>
+    <div class="menu-list"><button value="all">Ver toda la nota</button>${editor.layout === 'pages' ? '<button value="page">Agregar página al final</button>' : ''}<button value="rename">Cambiar título</button><button value="pdf">Exportar a PDF</button><button value="addpdf">Agregar páginas de un PDF</button><button value="write">Escribir tarjetas (nombre y definición)</button><button value="pomo">Pomodoro</button>${state.cards.some(c => c.noteId === openMeta.id) ? '<button value="review">Repasar las tarjetas de esta nota</button><button value="match">Unir parejas con esta nota</button>' : ''}</div>
     <div class="dlg-actions"><button value="cancel" class="ghost">Cerrar</button><button value="ok" class="primary">Aplicar fondo</button></div>`);
   if (!act) return;
   if (act.action === 'pdf') { await editor.save(); exportNotesPdf([openMeta]); }
@@ -404,6 +406,7 @@ async function editorMore() {
   else if (act.action === 'review') { await editor.save(); startReview(state.cards.filter(c => c.noteId === openMeta.id), openMeta.title); }
   else if (act.action === 'match') { await editor.save(); startMatch(state.cards.filter(c => c.noteId === openMeta.id), openMeta.title, 'note:' + openMeta.id); }
   else if (act.action === 'write') writeCards();
+  else if (act.action === 'pomo') pomodoroDialog(openMeta.subjectId);
   else if (act.action === 'all') editor.showAll();
   else if (act.action === 'page') editor.addPage();
   else if (act.action === 'rename') renameNote(openMeta);
@@ -613,8 +616,33 @@ function startReview(cards, title) {
   review.start({ cards, notes: new Map(state.notes.map(n => [n.id, n])), title });
 }
 
+// ---------- Tiempo de estudio ----------
+let currentExamScope = null;
+let pomoRef = null;
+// Guarda una sesión de estudio. Mientras corre un Pomodoro, repasar o jugar ya cuenta dentro de él.
+async function logStudy({ kind, cards = [], ms, score, subjectId, start }) {
+  if (!ms || ms < 60000) return;
+  if (kind !== 'pomodoro' && pomoRef && pomoRef.running) return;
+  let sid = subjectId;
+  if (sid === undefined) {
+    const count = new Map();
+    for (const c of cards) {
+      const n = state.notes.find(x => x.id === c.noteId);
+      const k = n && n.subjectId ? n.subjectId : null;
+      count.set(k, (count.get(k) || 0) + 1);
+    }
+    sid = [...count.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+  }
+  if (kind === 'exam' && score !== undefined && currentExamScope) {
+    lastExams = [{ scope: currentExamScope, score, at: Date.now() }, ...lastExams.filter(x => x.scope !== currentExamScope)].slice(0, 50);
+    try { localStorage.setItem('np-exams', JSON.stringify(lastExams)); } catch {}
+  }
+  await db.put('sessions', { id: uid(), kind, subjectId: sid, start: start || Date.now() - ms, ms, ...(score !== undefined ? { score } : {}) });
+}
+
 const review = createReview({
   toast,
+  onStudied: logStudy,
   onChanged: () => { if (!$('#home').hidden) renderReviewBtn(); },
   onOpenSource: card => {
     const n = state.notes.find(x => x.id === card.noteId);
@@ -625,7 +653,7 @@ const review = createReview({
 
 const isComplete = c => !!(c.front && (c.front.img || c.front.text) && c.back && (c.back.img || c.back.text));
 
-const match = createMatch({ onClose: () => { if (!$('#home').hidden) renderReviewBtn(); } });
+const match = createMatch({ onClose: () => { if (!$('#home').hidden) renderReviewBtn(); }, onStudied: logStudy });
 
 function startMatch(cards, title, scope) {
   const ok = cards.filter(isComplete);
@@ -651,6 +679,7 @@ async function studyChooser() {
     <div class="menu-list">
       <button value="review"><span>Repasar tarjetas</span><small id="ch-review"></small></button>
       <button value="match"><span>Unir parejas</span><small id="ch-match"></small></button>
+      <button value="exam"><span>Modo examen</span><small id="ch-exam"></small></button>
     </div>
     <div class="dlg-actions"><button value="cancel" class="ghost">Cerrar</button></div>`, {
     onOpen: f => {
@@ -660,6 +689,8 @@ async function studyChooser() {
         const due = list.filter(c => isDue(c.srs)).length;
         const pairs = list.filter(isComplete).length;
         f.querySelector('#ch-review').textContent = due ? `Te tocan ${due} hoy. Ves la pregunta, piensas la respuesta y te calificas.` : 'Hoy no te toca ninguna; puedes hacer un repaso libre.';
+        const ex = lastExams.find(x => (sel.value ? x.scope === 'note:' + sel.value : x.scope === 'view:' + state.current));
+        f.querySelector('#ch-exam').textContent = `Simulacro con tiempo límite y nota de 0 a 5.${ex ? ` Tu último: ${ex.score.toLocaleString('es-CO', { minimumFractionDigits: 1 })}.` : ''}`;
         f.querySelector('#ch-match').textContent = pairs >= 2 ? `${pairs} parejas. Une cada definición con su nombre, contra el reloj.` : 'Necesitas al menos 2 tarjetas con nombre y definición.';
       };
       sel.onchange = upd;
@@ -671,9 +702,35 @@ async function studyChooser() {
   const note = r.scope && state.notes.find(n => n.id === r.scope);
   const title = note ? note.title : group;
   if (r.action === 'review') startReview(list, title);
+  else if (r.action === 'exam') examDialog(list, title, r.scope ? 'note:' + r.scope : 'view:' + state.current);
   else if (r.action === 'match') startMatch(list, title, r.scope ? 'note:' + r.scope : 'view:' + state.current);
 }
 $('#review-btn').onclick = studyChooser;
+
+// Últimas notas de examen por tema (se muestran al elegir).
+let lastExams = [];
+try { lastExams = JSON.parse(localStorage.getItem('np-exams') || '[]'); } catch {}
+
+async function examDialog(list, title, scope) {
+  const usable = list.filter(c => c.front && (c.front.img || c.front.text));
+  if (!usable.length) { toast('Este tema todavía no tiene tarjetas.'); return; }
+  const n = usable.length;
+  const counts = [10, 20].filter(x => x < n).concat([n]);
+  const r = await dialog(`<h2>Modo examen</h2>
+    <p class="dlg-text">${esc(title)}: ves cada pregunta, la respondes de memoria y dices si la sabías. Cuando se acaba el tiempo, lo que falte cuenta como no respondido.</p>
+    <div class="field">Tiempo<div class="seg seg-form" role="radiogroup">${[5, 10, 15, 20, 30].map(m =>
+      `<label><input type="radio" name="min" value="${m}" ${m === 10 ? 'checked' : ''}>${m} min</label>`).join('')}</div></div>
+    <div class="field">Preguntas<div class="seg seg-form" role="radiogroup">${counts.map((c, i) =>
+      `<label><input type="radio" name="count" value="${c}" ${i === counts.length - 1 && c <= 20 || c === 20 ? 'checked' : ''}>${c === n && counts.length > 1 ? `Todas (${n})` : c}</label>`).join('')}</div></div>
+    ${buttons('Empezar el examen')}`);
+  if (!r) return;
+  $('#toast').classList.remove('show');
+  currentExamScope = scope;
+  review.start({
+    cards: usable, notes: new Map(state.notes.map(x => [x.id, x])), title,
+    exam: { minutes: +r.min || 10, count: +r.count || n, scope },
+  });
+}
 
 // Tarjetas escritas: nombre (o término) y definición.
 async function writeCards() {
@@ -714,6 +771,85 @@ async function writeCards() {
   const total = state.cards.filter(c => c.noteId === openMeta.id).length;
   toast(made ? `Se crearon ${made} tarjeta${made === 1 ? '' : 's'}. Esta nota tiene ${total}.` : 'No se creó ninguna: llena el nombre y la definición en la misma fila.', { long: true });
 }
+
+
+// ---------- Pomodoro ----------
+const pomo = createPomodoro({
+  toast,
+  getSubject: id => state.subjects.find(s => s.id === id),
+  onFocusLogged: ({ subjectId, ms, start }) => logStudy({ kind: 'pomodoro', subjectId, ms, start }),
+});
+pomoRef = pomo;
+
+async function pomodoroDialog(defaultSubject) {
+  const st = pomo.state;
+  if (!pomo.active) {
+    const pre = defaultSubject !== undefined ? defaultSubject : (currentSubject() ? currentSubject().id : st.subjectId);
+    const r = await dialog(`<h2>Pomodoro</h2>
+      <p class="dlg-text">Estudia concentrado un rato y luego descansa. Cada 4 pomodoros toca un descanso largo de 15 minutos. Te avisamos aunque tengas la pantalla apagada.</p>
+      <label class="field">Materia<select name="subjectId"><option value="">Sin materia</option>${state.subjects.map(s =>
+        `<option value="${s.id}" ${s.id === pre ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></label>
+      <div class="field">Enfoque<div class="seg seg-form" role="radiogroup">${[25, 45, 50].map(m =>
+        `<label><input type="radio" name="focus" value="${m}" ${m === (st.focusMin || 25) ? 'checked' : ''}>${m} min</label>`).join('')}</div></div>
+      <div class="field">Descanso<div class="seg seg-form" role="radiogroup">${[5, 10].map(m =>
+        `<label><input type="radio" name="brk" value="${m}" ${m === (st.breakMin || 5) ? 'checked' : ''}>${m} min</label>`).join('')}</div></div>
+      <div class="dlg-actions"><button value="stats" class="ghost">Tiempo de estudio</button><button value="cancel" class="ghost">Cerrar</button><button value="ok" class="primary">Empezar</button></div>`);
+    if (!r) return;
+    if (r.action === 'stats') { statsDialog(); return; }
+    pomo.start({ subjectId: r.subjectId || null, focusMin: +r.focus || 25, breakMin: +r.brk || 5 });
+    toast('¡A estudiar! Te aviso cuando sea hora de descansar.');
+    return;
+  }
+  const sub = state.subjects.find(s => s.id === st.subjectId);
+  const titles = { focus: 'Enfoque', break: 'Descanso', paused: 'En pausa', waiting: 'Descanso terminado' };
+  const inFocus = st.phase === 'focus' || (st.phase === 'paused' && st.paused && st.paused.phase === 'focus');
+  let live = null;
+  const r = await dialog(`<h2>${titles[st.phase] || 'Pomodoro'}</h2>
+    <div class="pomo-big" id="pomo-big">${st.phase === 'waiting' ? '0:00' : pomo.fmt(pomo.remaining())}</div>
+    <p class="pomo-sub">${sub ? esc(sub.name) + '. ' : ''}${st.cycle ? `Llevas ${st.cycle} pomodoro${st.cycle === 1 ? '' : 's'}.` : 'Primer pomodoro.'}</p>
+    <div class="menu-list">
+      ${st.phase === 'waiting' ? '<button value="next">Empezar otro pomodoro</button>'
+        : st.phase === 'paused' ? '<button value="resume">Reanudar</button>' : '<button value="pause">Pausar</button>'}
+      ${st.phase !== 'waiting' ? `<button value="skip">${inFocus ? 'Pasar al descanso' : 'Saltar el descanso'}</button>` : ''}
+      <button value="stop" class="danger">Terminar</button>
+    </div>
+    <div class="dlg-actions"><button value="stats" class="ghost">Tiempo de estudio</button><button value="cancel" class="ghost">Cerrar</button></div>`, {
+    onOpen: f => { live = setInterval(() => { const el = f.querySelector('#pomo-big'); if (el && pomo.state.phase !== 'waiting') el.textContent = pomo.fmt(pomo.remaining()); }, 500); },
+  });
+  clearInterval(live);
+  if (!r || !r.action) return;
+  if (r.action === 'pause') pomo.pause();
+  else if (r.action === 'resume') pomo.resume();
+  else if (r.action === 'next') pomo.next();
+  else if (r.action === 'skip') pomo.skip();
+  else if (r.action === 'stop') { pomo.stop(); toast('Pomodoro terminado. El tiempo quedó guardado.'); }
+  else if (r.action === 'stats') statsDialog();
+}
+
+async function statsDialog() {
+  const sessions = await db.all('sessions');
+  let offset = 0;
+  await dialog(`<h2>Tiempo de estudio</h2><div id="st-body"></div>
+    <div class="dlg-actions"><button value="ok" class="primary">Listo</button></div>`, {
+    wide: true,
+    onOpen: f => {
+      const body = f.querySelector('#st-body');
+      const draw = () => { body.innerHTML = statsHtml({ sessions, subjects: state.subjects, offset }); };
+      body.addEventListener('click', e => {
+        const b = e.target.closest('[data-week]');
+        if (!b || b.disabled) return;
+        e.preventDefault();
+        offset = Math.min(0, offset + +b.dataset.week);
+        draw();
+      });
+      draw();
+    },
+  });
+}
+
+$('#pomo-btn').onclick = () => pomodoroDialog();
+$('#pomo-main').onclick = () => pomodoroDialog();
+$('#stats-btn').onclick = statsDialog;
 
 // ---------- Copia de seguridad ----------
 function sinceText(t) {

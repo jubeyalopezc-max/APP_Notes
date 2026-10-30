@@ -14,8 +14,8 @@ function setInfo(patch) {
 }
 
 export async function buildBackup() {
-  const [subjects, notes, contents, cards] = await Promise.all([db.all('subjects'), db.all('notes'), db.all('contents'), db.all('cards')]);
-  const data = { app: 'NotesPro', version: 2, createdAt: Date.now(), subjects, notes, contents, cards };
+  const [subjects, notes, contents, cards, sessions] = await Promise.all([db.all('subjects'), db.all('notes'), db.all('contents'), db.all('cards'), db.all('sessions')]);
+  const data = { app: 'NotesPro', version: 3, createdAt: Date.now(), subjects, notes, contents, cards, sessions };
   return { blob: new Blob([JSON.stringify(data)], { type: 'application/octet-stream' }), subjects: subjects.length, notes: notes.length };
 }
 
@@ -87,6 +87,12 @@ export async function restoreBackup(data) {
     if (mineCards.has(c.id)) continue;
     await db.put('cards', c);
     cards++;
+  }
+  // Tiempo de estudio registrado (versión 3 en adelante).
+  const mineSessions = new Set((await db.all('sessions')).map(x => x.id));
+  for (const x of data.sessions || []) {
+    if (mineSessions.has(x.id)) continue;
+    await db.put('sessions', { ...x, subjectId: remap.get(x.subjectId) || x.subjectId });
   }
   return { added, updated, newSubjects, cards };
 }

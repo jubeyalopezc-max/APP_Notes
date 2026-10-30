@@ -9,7 +9,7 @@ function bestKey(scope) { return 'np-match-best:' + scope; }
 function getBest(scope) { try { return +localStorage.getItem(bestKey(scope)) || 0; } catch { return 0; } }
 function setBest(scope, ms) { try { localStorage.setItem(bestKey(scope), String(ms)); } catch {} }
 
-export function createMatch({ onClose }) {
+export function createMatch({ onClose, onStudied }) {
   const root = $('#match');
   const board = $('#mt-board'), colL = $('#mt-left'), colR = $('#mt-right'), svg = $('#mt-lines');
   const timerEl = $('#mt-timer'), countEl = $('#mt-count'), errEl = $('#mt-errors'), done = $('#mt-done');
@@ -117,9 +117,17 @@ export function createMatch({ onClose }) {
     finish();
   }
 
+  let logged = false;
+  function log() {
+    if (logged) return;
+    logged = true;
+    onStudied && onStudied({ kind: 'match', cards: deck, ms: Date.now() - t0 });
+  }
+
   function finish() {
     clearInterval(tick);
     const ms = Date.now() - t0;
+    log();
     const best = getBest(scope);
     const record = !errors && (!best || ms < best);
     if (record) setBest(scope, ms);
@@ -148,6 +156,7 @@ export function createMatch({ onClose }) {
 
   function close() {
     clearInterval(tick);
+    if (!root.hidden) log();
     root.hidden = true;
     onClose && onClose();
   }
@@ -164,7 +173,7 @@ export function createMatch({ onClose }) {
       const last = rounds.pop();
       rounds[rounds.length - 1].push(...last);
     }
-    roundIdx = 0; errors = 0; missed = new Map();
+    roundIdx = 0; errors = 0; missed = new Map(); logged = false;
     $('#mt-title').textContent = t;
     root.hidden = false;
     t0 = Date.now();
