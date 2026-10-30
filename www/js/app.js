@@ -10,7 +10,7 @@ import { statsHtml, fmtMin } from './stats.js';
 import { TYPES, REMINDERS, isoDay, daysUntil, countdown, longDate, shortDate, eventTitle, studyPlan, scheduleReminders, cancelReminders, monthHtml } from './calendar.js';
 import { newSrs, isDue } from './srs.js';
 import { updaterPlugin, fetchNewer, updateState, saveUpdateState } from './updater.js';
-import { buildBackup, audioSize, backupFileName, backupInfo, markManualBackup, autoBackup, setAutoBackup, readBackup, restoreBackup } from './backup.js';
+import { buildBackup, audioSize, backupFileName, backupInfo, markManualBackup, autoBackup, backupBeforeUpdate, setAutoBackup, readBackup, restoreBackup } from './backup.js';
 
 const $ = s => document.querySelector(s);
 const SUBJECT_COLORS = ['#2D55E0', '#12968A', '#D9442F', '#E7A21A', '#7A4BD6', '#1E9E5A', '#D23D86', '#46566F'];
@@ -1377,7 +1377,7 @@ async function updateDialog() {
   const r = await dialog(`<h2>Versión nueva: ${verName(list[0])}</h2>
     <p class="dlg-text">Tienes ${esc(installedName)}. ${list.length > 1 ? `Desde entonces salieron ${list.length} versiones:` : 'Esto es lo nuevo:'}</p>
     <div class="upd-list">${items}</div>
-    <p class="dlg-text">Tus notas, tarjetas y grabaciones no se borran al actualizar.${mb}</p>
+    <p class="dlg-text">Tus notas, tarjetas y grabaciones se mantienen. Antes de instalar, NotesPro guarda además una copia de todo en ${esc(DEVICE_FOLDER)}.${mb}</p>
     ${buttons('Actualizar ahora')}`, { wide: true });
   if (r) startUpdate(list[0]);
 }
@@ -1396,10 +1396,23 @@ async function startUpdate(v) {
     catch { pendingInstall = null; toast('No se pudo abrir el ajuste. Búscalo en Ajustes, Apps, NotesPro, Instalar apps desconocidas.', { long: true }); }
     return;
   }
+  if (editor.isOpen && editor.recording) {
+    const ok = await confirmDialog('Estás grabando la clase', 'Para actualizar hay que terminar la grabación. Lo que llevas grabado queda guardado en la nota.', 'Terminar y actualizar');
+    if (!ok) return;
+    await editor.stopRecording();
+  }
   updating = true;
   let sub = null;
   try {
     if (editor.isOpen) await editor.save();
+    // Una copia de todo fuera de la app, por si acaso: si algo sale mal se restaura desde Copia de seguridad.
+    toast('Guardando una copia de tus notas antes de actualizar…', { sticky: true });
+    let copy = null;
+    try { copy = await backupBeforeUpdate(verName(v)); } catch (e) { console.error(e); }
+    if (!copy) {
+      const go = await confirmDialog('No se pudo guardar la copia', 'Tus notas normalmente se mantienen al actualizar, pero no se pudo guardar la copia de respaldo. ¿Actualizar de todas formas?', 'Actualizar');
+      if (!go) return;
+    }
     toast('Descargando la actualización…', { sticky: true });
     sub = await Updater.addListener('progress', p => {
       if (p.total > 0) toast(`Descargando la actualización: ${Math.min(100, Math.floor(p.done * 100 / p.total))} %`, { sticky: true });

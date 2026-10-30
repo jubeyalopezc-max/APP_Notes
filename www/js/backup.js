@@ -61,6 +61,14 @@ export async function autoBackup() {
   return !!path;
 }
 
+/** Copia de seguridad justo antes de instalar una actualización, en la carpeta del dispositivo. */
+export async function backupBeforeUpdate(version) {
+  if (!isNative) return null;
+  const { blob, notes } = await buildBackup();
+  if (!notes) return null;
+  return saveToDevice(blob, `copias-automaticas/NotesPro-antes-de-${version}.notespro`);
+}
+
 export function setAutoBackup(on) { setInfo({ autoOff: !on }); }
 
 /** Lee un archivo de copia. Devuelve los datos o lanza un error con un mensaje para la persona. */
