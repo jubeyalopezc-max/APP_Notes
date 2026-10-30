@@ -280,6 +280,18 @@ svg { width: 22px; height: 22px; flex: none; }
   border-radius: 16px;
 }
 .backup-banner svg { color: #8A6400; }
+.update-banner { background: color-mix(in srgb, var(--accent) 14%, var(--panel)); border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.update-banner svg { color: var(--accent); }
+.update-banner p small { display: block; font-weight: 400; color: var(--muted); font-size: 14px; margin-top: 2px; }
+.upd-list { display: flex; flex-direction: column; gap: 10px; max-height: 46vh; overflow: auto; margin: 4px 0 12px; padding-right: 4px; }
+.upd-item { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+.upd-item b { display: block; }
+.upd-item .upd-ver { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.upd-item details { margin-top: 4px; font-size: 14px; color: var(--muted); }
+.upd-item summary { cursor: pointer; color: var(--accent); font-weight: 700; }
+.upd-item details p { white-space: pre-line; margin: 6px 0 0; line-height: 1.45; }
+.upd-bar { height: 8px; border-radius: 4px; background: var(--raised); overflow: hidden; margin: 10px 0 4px; }
+.upd-bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
 .backup-banner p { flex: 1; min-width: 180px; margin: 0; font-weight: 700; }
 .backup-banner .primary { height: 40px; border-radius: 12px; }
 .backup-banner .ghost { height: 40px; }

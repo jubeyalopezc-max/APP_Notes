@@ -66,13 +66,22 @@ jobs:
           fi
           cp app/build/outputs/apk/release/app-release.apk "$GITHUB_WORKSPACE/NotesPro-v1.0.${{ github.run_number }}.apk"
 
+      - name: Notas de la versión
+        run: |
+          {
+            echo "Descarga el archivo **NotesPro-v1.0.${{ github.run_number }}.apk** desde la tablet e instálalo."
+            echo "Si ya tienes NotesPro v1.0.15 o más nueva, la app te avisa sola cuando hay una versión nueva."
+            echo
+            printf 'Cambios: '
+            git log -1 --format=%B | grep -vE '^(Co-Authored-By|Claude-Session):' | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}'
+          } > "$RUNNER_TEMP/notes.md"
+          cat "$RUNNER_TEMP/notes.md"
+
       - name: Publicar el APK
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v1.0.${{ github.run_number }}
           name: NotesPro v1.0.${{ github.run_number }}
-          body: |
-            Descarga el archivo **NotesPro-v1.0.${{ github.run_number }}.apk** desde la tablet e instálalo.
-            Cambios: ${{ github.event.head_commit.message }}
+          body_path: ${{ runner.temp }}/notes.md
           files: NotesPro-v1.0.${{ github.run_number }}.apk
           make_latest: true

@@ -9,6 +9,7 @@ import { createPomodoro } from './pomodoro.js';
 import { statsHtml, fmtMin } from './stats.js';
 import { TYPES, REMINDERS, isoDay, daysUntil, countdown, longDate, shortDate, eventTitle, studyPlan, scheduleReminders, cancelReminders, monthHtml } from './calendar.js';
 import { newSrs, isDue } from './srs.js';
+import { updaterPlugin, fetchNewer, updateState, saveUpdateState } from './updater.js';
 import { buildBackup, audioSize, backupFileName, backupInfo, markManualBackup, autoBackup, setAutoBackup, readBackup, restoreBackup } from './backup.js';
 
 const $ = s => document.querySelector(s);
@@ -1317,6 +1318,128 @@ $('#backup-banner .ghost').onclick = () => {
   renderBanner();
 };
 
+// ---------- Actualizaciones ----------
+// Al abrir la app (y al volver a ella) se revisa en GitHub si hay una versión nueva.
+const Updater = updaterPlugin();
+let installed = 0, installedName = '', newer = [], pendingInstall = null, updating = false;
+const verName = v => `v1.0.${v.num}`;
+const hideToast = () => $('#toast').classList.remove('show');
+
+async function checkUpdates({ force = false } = {}) {
+  if (!Updater || !installed) return newer;
+  const st = updateState();
+  if (!force && st.checked && Date.now() - st.checked < 4 * 3600000) return newer;
+  newer = await fetchNewer(installed);
+  saveUpdateState({ list: newer });
+  renderUpdate();
+  return newer;
+}
+
+function renderUpdate() {
+  const latest = newer[0];
+  $('#update-count').textContent = latest ? '1' : '';
+  const b = $('#update-banner');
+  const sn = updateState().snooze;
+  const snoozed = latest && sn && sn.num === latest.num && Date.now() < sn.until;
+  b.hidden = !latest || !!snoozed;
+  if (latest && !snoozed) {
+    b.querySelector('p').innerHTML = `Hay una versión nueva de NotesPro: ${verName(latest)}` +
+      (latest.title ? `<small>${esc(latest.title)}</small>` : '');
+  }
+}
+
+async function updateDialog() {
+  let list = newer;
+  if (!Updater) return;
+  if (Date.now() - (updateState().checked || 0) > 60000) {
+    toast('Buscando actualizaciones…', { sticky: true });
+    try { list = await checkUpdates({ force: true }); hideToast(); }
+    catch { toast('No se pudo revisar si hay actualizaciones. Revisa tu conexión a internet.', { long: true }); if (!list.length) return; }
+  }
+  if (!list.length) {
+    await dialog(`<h2>Actualizaciones</h2>
+      <p class="dlg-text">Tienes la versión más reciente: <b>NotesPro ${esc(installedName)}</b>. Cuando salga una nueva te aviso al abrir la app.</p>
+      <div class="dlg-actions"><button value="ok" class="primary">Listo</button></div>`);
+    return;
+  }
+  const fmtDate = iso => { try { return new Date(iso).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' }); } catch { return ''; } };
+  const items = list.map(v => `<div class="upd-item"><span class="upd-ver">${verName(v)}${v.date ? ` · ${fmtDate(v.date)}` : ''}</span>
+    <b>${esc(v.title || 'Mejoras y arreglos')}</b>
+    ${v.detail ? `<details><summary>Ver detalles</summary><p>${esc(v.detail)}</p></details>` : ''}</div>`).join('');
+  const mb = list[0].size ? ` La descarga pesa ${(list[0].size / 1048576).toFixed(1)} MB.` : '';
+  const r = await dialog(`<h2>Versión nueva: ${verName(list[0])}</h2>
+    <p class="dlg-text">Tienes ${esc(installedName)}. ${list.length > 1 ? `Desde entonces salieron ${list.length} versiones:` : 'Esto es lo nuevo:'}</p>
+    <div class="upd-list">${items}</div>
+    <p class="dlg-text">Tus notas, tarjetas y grabaciones no se borran al actualizar.${mb}</p>
+    ${buttons('Actualizar ahora')}`, { wide: true });
+  if (r) startUpdate(list[0]);
+}
+
+async function startUpdate(v) {
+  if (!Updater || updating) return;
+  let info;
+  try { info = await Updater.info(); } catch { info = { canInstall: true }; }
+  if (!info.canInstall) {
+    const r = await dialog(`<h2>Un permiso, solo la primera vez</h2>
+      <p class="dlg-text">Para instalar la actualización, Android necesita que le permitas a NotesPro instalar apps. Se abrirá un ajuste: activa <b>Permitir de esta fuente</b> y vuelve a NotesPro con el botón atrás. La actualización sigue sola.</p>
+      ${buttons('Ir al ajuste')}`);
+    if (!r) return;
+    pendingInstall = v;
+    try { await Updater.openInstallSettings(); }
+    catch { pendingInstall = null; toast('No se pudo abrir el ajuste. Búscalo en Ajustes, Apps, NotesPro, Instalar apps desconocidas.', { long: true }); }
+    return;
+  }
+  updating = true;
+  let sub = null;
+  try {
+    if (editor.isOpen) await editor.save();
+    toast('Descargando la actualización…', { sticky: true });
+    sub = await Updater.addListener('progress', p => {
+      if (p.total > 0) toast(`Descargando la actualización: ${Math.min(100, Math.floor(p.done * 100 / p.total))} %`, { sticky: true });
+    });
+    const { path } = await Updater.download({ url: v.url });
+    toast('Toca "Instalar" en la ventana de Android. Tus notas se quedan como están.', { long: true });
+    await Updater.install({ path });
+  } catch (err) {
+    toast((err && err.message) || 'No se pudo actualizar. Inténtalo de nuevo.', { long: true });
+  } finally {
+    updating = false;
+    if (sub) sub.remove();
+  }
+}
+
+async function onResumeUpdate() {
+  if (!Updater) return;
+  if (pendingInstall) {
+    const v = pendingInstall;
+    pendingInstall = null;
+    let ok = false;
+    try { ok = (await Updater.info()).canInstall; } catch {}
+    if (ok) startUpdate(v);
+    else toast('No se activó el permiso. Puedes intentarlo otra vez desde Actualizaciones.', { long: true });
+    return;
+  }
+  checkUpdates().catch(() => {});
+}
+
+$('#update-btn').onclick = updateDialog;
+$('#update-banner .primary').onclick = updateDialog;
+$('#update-banner .ghost').onclick = () => {
+  if (newer[0]) saveUpdateState({ snooze: { num: newer[0].num, until: Date.now() + 86400000 } });
+  renderUpdate();
+};
+if (Updater) {
+  $('#update-btn').hidden = false;
+  Updater.info().then(i => {
+    installed = +i.versionCode || 0;
+    installedName = 'v' + (i.versionName || `1.0.${installed}`);
+    newer = (updateState().list || []).filter(v => v.num > installed);
+    renderUpdate();
+    Updater.cleanup().catch(() => {});
+    setTimeout(() => checkUpdates().catch(() => {}), 6000);
+  }).catch(() => {});
+}
+
 // ---------- Eventos ----------
 $('#home').addEventListener('click', e => {
   const sp = e.target.closest('.spine');
@@ -1349,7 +1472,7 @@ if (CapApp) {
     CapApp.exitApp();
   });
   CapApp.addListener('pause', () => { if (editor.isOpen) editor.save(); });
-  CapApp.addListener('resume', () => { autoBackup().catch(() => {}); });
+  CapApp.addListener('resume', () => { autoBackup().catch(() => {}); onResumeUpdate(); });
 }
 
 (async function start() {

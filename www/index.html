@@ -41,6 +41,7 @@
       <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5z" fill="currentColor"/></symbol>
       <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.9"/><path d="M3.5 10h17M8 3v4M16 3v4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><rect x="7" y="13" width="3.5" height="3.5" rx=".8" fill="currentColor"/></symbol>
       <symbol id="i-moon" viewBox="0 0 24 24"><path d="M19.5 14.6A7.8 7.8 0 019.4 4.5a7.8 7.8 0 1010.1 10.1z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/></symbol>
+      <symbol id="i-update" viewBox="0 0 24 24"><path d="M12 3.5v11M7.5 10l4.5 4.5 4.5-4.5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="M4.5 16.5v2a2 2 0 002 2h11a2 2 0 002-2v-2" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></symbol>
       <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="1.9"/><path d="M5.5 11a6.5 6.5 0 0013 0M12 17.5V21M8.5 21h7" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></symbol>
       <symbol id="i-back10" viewBox="0 0 24 24"><path d="M4.5 12a7.5 7.5 0 102.2-5.3L4.5 9" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="M4.5 4.5V9H9" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></symbol>
       <symbol id="i-fwd10" viewBox="0 0 24 24"><g transform="matrix(-1 0 0 1 24 0)"><path d="M4.5 12a7.5 7.5 0 102.2-5.3L4.5 9" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="M4.5 4.5V9H9" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></g></symbol>
@@ -62,11 +63,18 @@
       <button class="rail-backup rail-mid" id="stats-btn"><svg><use href="#i-chart"/></svg>Tiempo de estudio</button>
       <button class="rail-backup rail-mid" id="theme-btn"><svg><use href="#i-moon"/></svg>Apariencia</button>
       <button class="rail-backup rail-mid" id="backup-btn"><svg><use href="#i-shield"/></svg>Copia de seguridad</button>
+      <button class="rail-backup rail-mid" id="update-btn" hidden><svg><use href="#i-update"/></svg>Actualizaciones<span class="badge" id="update-count"></span></button>
       <input type="file" id="restore-input" hidden>
       <input type="file" id="pdf-input" accept="application/pdf,.pdf" hidden>
     </nav>
     <section class="library">
       <header class="lib-head">
+        <div class="backup-banner update-banner" id="update-banner" hidden>
+          <svg><use href="#i-update"/></svg>
+          <p></p>
+          <button class="ghost">Más tarde</button>
+          <button class="primary">Ver y actualizar</button>
+        </div>
         <div class="backup-banner" id="backup-banner" hidden>
           <svg><use href="#i-shield"/></svg>
           <p></p>
