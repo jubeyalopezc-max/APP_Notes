@@ -1736,7 +1736,32 @@ export function createEditor({ onSave, onClose, toast, askMark, onCapture, isDar
   });
 
   // ---------- API ----------
+  // Fórmula o gráfica de la calculadora: se pone en el centro de lo que se ve y queda seleccionada.
+  function insertPicture({ src, srcDark, w, h, math }) {
+    if (!note) return false;
+    const r = stage.getBoundingClientRect();
+    const center = toDoc(r.left + W / 2, r.top + H / 2);
+    const k = Math.min(1, (PAGE_W * 0.8) / w);
+    const iw = w * k, ih = h * k;
+    const x = layout === 'canvas' ? center.x - iw / 2 : Math.max(20, Math.min(PAGE_W - iw - 20, center.x - iw / 2));
+    let y = center.y - ih / 2;
+    // Si ahí ya hay algo (otra fórmula, una imagen o texto), se pone debajo.
+    for (let k = 0; k < 12; k++) {
+      const hit = items.find(o => (o.type === 'image' || o.type === 'text') && !o.bg && (() => { const b = bounds(o); return b.x0 < x + iw && b.x1 > x && b.y0 < y + ih && b.y1 > y; })());
+      if (!hit) break;
+      y = bounds(hit).y1 + 24;
+    }
+    const it = tag({ id: uid(), type: 'image', src, ...(srcDark ? { srcDark } : {}), ...(math ? { math } : {}), x, y, w: iw, h: ih });
+    pushUndo();
+    items.push(it);
+    changed();
+    setTool('select');
+    setSelection([it]);
+    return true;
+  }
+
   return {
+    insertPicture,
     open(meta, content, focus) {
       note = meta;
       items = (content && content.items) || [];

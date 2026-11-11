@@ -7,12 +7,18 @@ const PT = PT_W / PAGE_W;         // puntos por unidad de página
 const RES = 1.45;                 // píxeles por unidad (unos 175 ppp)
 
 function loadImages(items) {
-  return Promise.all(items.filter(i => i.type === 'image').map(it => new Promise(res => {
-    const img = getImage(it, () => {});
+  const wait = img => new Promise(res => {
     if (img.complete) return res();
     img.addEventListener('load', res, { once: true });
     img.addEventListener('error', res, { once: true });
-  })));
+  });
+  const list = [];
+  for (const it of items.filter(i => i.type === 'image')) {
+    list.push(wait(getImage(it, () => {})));
+    // La versión clara de una fórmula (para el PDF oscuro).
+    if (it.srcDark) list.push(wait(getImage({ src: it.srcDark }, () => {})));
+  }
+  return Promise.all(list);
 }
 
 async function jpeg(canvas) {

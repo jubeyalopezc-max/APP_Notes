@@ -249,13 +249,17 @@ export function getPath(it) {
   return p;
 }
 
+// Las fórmulas de la calculadora guardan dos versiones: tinta oscura y tinta clara (hojas oscuras).
+export const imageSrc = it => (inkDark && it.srcDark ? it.srcDark : it.src);
+
 export function getImage(it, onload) {
-  let img = imgCache.get(it.src);
+  const src = imageSrc(it);
+  let img = imgCache.get(src);
   if (!img) {
     img = new Image();
     img.onload = onload;
-    img.src = it.src;
-    imgCache.set(it.src, img);
+    img.src = src;
+    imgCache.set(src, img);
   }
   return img;
 }

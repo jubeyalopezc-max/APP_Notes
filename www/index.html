@@ -42,6 +42,7 @@
       <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.9"/><path d="M3.5 10h17M8 3v4M16 3v4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><rect x="7" y="13" width="3.5" height="3.5" rx=".8" fill="currentColor"/></symbol>
       <symbol id="i-moon" viewBox="0 0 24 24"><path d="M19.5 14.6A7.8 7.8 0 019.4 4.5a7.8 7.8 0 1010.1 10.1z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/></symbol>
       <symbol id="i-update" viewBox="0 0 24 24"><path d="M12 3.5v11M7.5 10l4.5 4.5 4.5-4.5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="M4.5 16.5v2a2 2 0 002 2h11a2 2 0 002-2v-2" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-calc" viewBox="0 0 24 24"><rect x="4.5" y="2.8" width="15" height="18.4" rx="2.6" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="7.5" y="5.8" width="9" height="3.6" rx="1" fill="none" stroke="currentColor" stroke-width="1.6"/><g fill="currentColor"><circle cx="8.6" cy="13" r="1.15"/><circle cx="12" cy="13" r="1.15"/><circle cx="15.4" cy="13" r="1.15"/><circle cx="8.6" cy="16.9" r="1.15"/><circle cx="12" cy="16.9" r="1.15"/><circle cx="15.4" cy="16.9" r="1.15"/></g></symbol>
       <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="1.9"/><path d="M5.5 11a6.5 6.5 0 0013 0M12 17.5V21M8.5 21h7" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></symbol>
       <symbol id="i-back10" viewBox="0 0 24 24"><path d="M4.5 12a7.5 7.5 0 102.2-5.3L4.5 9" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="M4.5 4.5V9H9" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></symbol>
       <symbol id="i-fwd10" viewBox="0 0 24 24"><g transform="matrix(-1 0 0 1 24 0)"><path d="M4.5 12a7.5 7.5 0 102.2-5.3L4.5 9" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="M4.5 4.5V9H9" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></g></symbol>
@@ -61,6 +62,7 @@
       <button class="rail-backup rail-first" id="cal-btn"><svg><use href="#i-calendar"/></svg>Calendario<span class="badge" id="cal-count"></span></button>
       <button class="rail-backup rail-mid" id="pomo-btn"><svg><use href="#i-timer"/></svg>Pomodoro</button>
       <button class="rail-backup rail-mid" id="stats-btn"><svg><use href="#i-chart"/></svg>Tiempo de estudio</button>
+      <button class="rail-backup rail-mid" id="calc-btn"><svg><use href="#i-calc"/></svg>Calculadora</button>
       <button class="rail-backup rail-mid" id="theme-btn"><svg><use href="#i-moon"/></svg>Apariencia</button>
       <button class="rail-backup rail-mid" id="backup-btn"><svg><use href="#i-shield"/></svg>Copia de seguridad</button>
       <button class="rail-backup rail-mid" id="update-btn" hidden><svg><use href="#i-update"/></svg>Actualizaciones<span class="badge" id="update-count"></span></button>
@@ -111,6 +113,7 @@
         <button class="icon-btn" id="ed-redo" aria-label="Rehacer"><svg><use href="#i-redo"/></svg></button>
         <button class="chip-btn" id="ed-audio" aria-pressed="false" title="Grabar la clase"><svg><use href="#i-mic"/></svg><span class="lbl">Grabar</span></button>
         <button class="chip-btn" id="ed-study" aria-pressed="false" title="Modo Estudiar: tapa las partes marcadas"><svg><use href="#i-eye"/></svg><span class="lbl">Estudiar</span></button>
+        <button class="chip-btn" id="ed-calc" aria-pressed="false" title="Calculadora: resolver operaciones"><svg><use href="#i-calc"/></svg><span class="lbl">Calcular</span></button>
         <button class="chip-btn" id="ed-index" aria-pressed="false" title="Índice y marcadores"><svg><use href="#i-index"/></svg><span class="lbl">Índice</span></button>
         <button class="chip-btn" id="ed-finger" aria-pressed="true"><svg><use href="#i-hand"/></svg><span class="lbl">Dedo dibuja</span></button>
         <button class="icon-btn" id="ed-more" aria-label="Más opciones"><svg><use href="#i-dots"/></svg></button>
@@ -243,6 +246,61 @@
       <div class="mt-col" id="mt-right" aria-label="Nombres"></div>
     </div>
     <div class="mt-done" id="mt-done" hidden></div>
+  </section>
+
+  <!-- Calculadora -->
+  <section id="calc" hidden aria-label="Calculadora">
+    <header class="calc-top">
+      <b class="calc-name">Calculadora</b>
+      <div class="seg calc-tabs" role="tablist">
+        <button role="tab" data-tab="ops" aria-pressed="true">Operaciones</button>
+        <button role="tab" data-tab="stats" aria-pressed="false">Estadística</button>
+      </div>
+      <button class="icon-btn" id="calc-clear" aria-label="Borrar el historial" title="Borrar el historial"><svg><use href="#i-trash"/></svg></button>
+      <button class="icon-btn" id="calc-close" aria-label="Cerrar la calculadora"><svg><use href="#i-close"/></svg></button>
+    </header>
+    <div class="calc-feed" id="calc-feed" aria-live="polite"></div>
+    <div class="calc-bottom" id="calc-ops-pane">
+      <div class="calc-ops" id="calc-ops" role="toolbar" aria-label="Operaciones"></div>
+      <div class="calc-opts" id="calc-opts" hidden></div>
+      <div class="calc-row">
+        <div class="calc-mf-wrap" id="calc-mf-wrap"><span class="calc-loading">Cargando el teclado…</span></div>
+        <button class="primary calc-go" id="calc-go" aria-label="Calcular">=</button>
+      </div>
+    </div>
+    <div class="calc-bottom" id="calc-stats-pane" hidden>
+      <div class="seg calc-stabs" role="tablist">
+        <button data-st="data" aria-pressed="true">Datos</button>
+        <button data-st="binom" aria-pressed="false">Binomial</button>
+        <button data-st="poisson" aria-pressed="false">Poisson</button>
+        <button data-st="normal" aria-pressed="false">Normal</button>
+      </div>
+      <div class="calc-st" data-st="data">
+        <textarea id="st-data" rows="3" placeholder="Escribe los datos separados por comas o espacios: 3, 5, 7.5, 8&#10;Para regresión, dos columnas por renglón: x y"></textarea>
+        <button class="primary" id="st-go">Calcular resumen</button>
+      </div>
+      <div class="calc-st" data-st="binom" hidden>
+        <label>n (ensayos)<input type="number" id="bn-n" value="10" min="1" step="1"></label>
+        <label>p (éxito)<input type="number" id="bn-p" value="0.5" min="0" max="1" step="0.01"></label>
+        <label>k<input type="number" id="bn-k" value="3" min="0" step="1"></label>
+        <button class="primary" id="bn-go">Calcular</button>
+      </div>
+      <div class="calc-st" data-st="poisson" hidden>
+        <label>λ (promedio)<input type="number" id="ps-l" value="3" min="0" step="0.1"></label>
+        <label>k<input type="number" id="ps-k" value="2" min="0" step="1"></label>
+        <button class="primary" id="ps-go">Calcular</button>
+      </div>
+      <div class="calc-st" data-st="normal" hidden>
+        <label>μ (media)<input type="number" id="nm-mu" value="0" step="any"></label>
+        <label>σ (desviación)<input type="number" id="nm-sd" value="1" min="0" step="any"></label>
+        <label>Desde a<input type="number" id="nm-a" placeholder="−∞" step="any"></label>
+        <label>Hasta b<input type="number" id="nm-b" value="1.96" placeholder="+∞" step="any"></label>
+        <button class="primary" id="nm-go">P(a &lt; X &lt; b)</button>
+        <label>Probabilidad<input type="number" id="nm-p" value="0.95" min="0" max="1" step="0.01"></label>
+        <button class="secondary" id="nm-inv">Valor con esa probabilidad</button>
+      </div>
+    </div>
+    <div class="calc-kbd" id="calc-kbd"></div>
   </section>
 
   <!-- Calendario -->

@@ -9,6 +9,7 @@ import { createPomodoro } from './pomodoro.js';
 import { statsHtml, fmtMin } from './stats.js';
 import { TYPES, REMINDERS, isoDay, daysUntil, countdown, longDate, shortDate, eventTitle, studyPlan, scheduleReminders, cancelReminders, monthHtml } from './calendar.js';
 import { newSrs, isDue } from './srs.js';
+import { createCalc } from './calc.js';
 import { updaterPlugin, fetchNewer, updateState, saveUpdateState } from './updater.js';
 import { buildBackup, audioSize, backupFileName, backupInfo, markManualBackup, autoBackup, backupBeforeUpdate, setAutoBackup, readBackup, restoreBackup } from './backup.js';
 
@@ -22,7 +23,7 @@ const state = { subjects: [], notes: [], trash: [], cards: [], events: [], curre
 // ---------- Apariencia ----------
 const themeMq = window.matchMedia('(prefers-color-scheme: dark)');
 let theme = { mode: 'auto', darkSheets: true };
-let editorRef = null;
+let editorRef = null, calcRef = null;
 try { theme = { ...theme, ...JSON.parse(localStorage.getItem('np-theme') || '{}') }; } catch {}
 const isDarkTheme = () => theme.mode === 'dark' || (theme.mode === 'auto' && themeMq.matches);
 // El PDF sale como se ve en pantalla (hojas oscuras si las estás usando), salvo que se pida siempre claro.
@@ -31,6 +32,7 @@ function applyTheme() {
   const root = document.documentElement;
   if (theme.mode === 'auto') delete root.dataset.theme; else root.dataset.theme = theme.mode;
   if (editorRef && editorRef.isOpen) editorRef.refresh();
+  if (calcRef) calcRef.refreshTheme();
 }
 applyTheme();
 themeMq.addEventListener('change', applyTheme);
@@ -413,6 +415,17 @@ const editor = createEditor({
   },
 });
 editorRef = editor;
+
+// ---------- Calculadora ----------
+const calc = createCalc({
+  toast,
+  getEditor: () => editor,
+  isDark: () => isDarkTheme(),
+  onToggle: on => $('#ed-calc').setAttribute('aria-pressed', String(on)),
+});
+calcRef = calc;
+$('#calc-btn').onclick = () => calc.open();
+$('#ed-calc').onclick = () => calc.toggle();
 
 
 async function openNote(n, focus) {
@@ -1486,6 +1499,7 @@ if (CapApp) {
     if (dlg.open) { dlg.close('cancel'); return; }
     if (review.isOpen) { review.close(); return; }
     if (match.isOpen) { match.close(); return; }
+    if (calc.isOpen) { calc.close(); return; }
     if (!$('#calendar').hidden) { closeCalendar(); return; }
     if (editor.isOpen) { if (!editor.deselect()) closeEditor(); return; }
     if (state.current !== 'all') { state.current = 'all'; render(); return; }
