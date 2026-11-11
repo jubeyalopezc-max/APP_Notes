@@ -852,3 +852,13 @@ body.calc-docked #editor { right: min(460px, 100%); }
 .calc-st input { height: 40px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); padding: 0 10px; font: inherit; font-size: 16px; }
 .calc-st textarea { width: 100%; border-radius: 12px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); padding: 8px 10px; font: inherit; font-size: 16px; resize: vertical; }
 .calc-st button { height: 40px; }
+.cc-steps { margin-top: 8px; border-top: 1px solid var(--line); padding-top: 8px; }
+.cc-steps ol { margin: 0; padding-left: 26px; display: flex; flex-direction: column; gap: 10px; }
+.cc-steps li { font-size: 15px; line-height: 1.4; }
+.cc-steps li::marker { color: var(--accent); font-weight: 700; }
+.cc-steps li.st-head { list-style: none; margin-left: -26px; font-weight: 700; color: var(--accent); font-size: 14px; text-transform: uppercase; letter-spacing: .03em; }
+.st-title { color: var(--ink); font-weight: 700; }
+.st-title mjx-container { font-weight: 400; }
+.st-rule { color: var(--muted); font-size: 14px; margin-top: 2px; overflow-x: auto; }
+.st-math { overflow-x: auto; overflow-y: hidden; font-size: 16px; margin-top: 2px; background: var(--raised); border-radius: 10px; padding: 2px 8px; }
+.st-math mjx-container { margin: 4px 0 !important; text-align: left !important; }

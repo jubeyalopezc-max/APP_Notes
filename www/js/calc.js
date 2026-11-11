@@ -5,6 +5,7 @@ import { warmUp } from './cas.js';
 import { compile } from './giacfn.js';
 import { createPlot, PLOT_COLORS } from './plot.js';
 import * as ST from './calcstats.js';
+import { hasSteps, stepsFor } from './steps/index.js';
 
 const $ = s => document.querySelector(s);
 const HIST_KEY = 'np-calc-history';
@@ -356,12 +357,93 @@ export function createCalc({ toast, getEditor, isDark, onToggle }) {
       };
       const btn = (text, fn, main) => { const b = document.createElement('button'); b.textContent = text; if (main) b.className = 'main'; b.onclick = fn; actions.appendChild(b); return b; };
       if (h.res.blocks.length || h.res.table) btn('Insertar en la nota', () => insertCard(h), true);
+      let stepsBox = null;
+      if (!h.error && h.res.blocks.length && hasSteps(h)) {
+        const sb = btn('Paso a paso', async () => {
+          if (stepsBox) { stepsBox.remove(); stepsBox = null; sb.setAttribute('aria-expanded', 'false'); return; }
+          sb.setAttribute('aria-expanded', 'true');
+          hideKeyboard();
+          stepsBox = document.createElement('div');
+          stepsBox.className = 'cc-steps';
+          stepsBox.innerHTML = '<div class="cc-busy">Armando el paso a paso…</div>';
+          el.insertBefore(stepsBox, actions);
+          if (h.steps === undefined) {
+            try { h.steps = (await stepsFor(h)) || null; } catch (e) { console.warn(e); h.steps = null; }
+            saveHistory();
+          }
+          if (stepsBox) renderSteps(stepsBox, h);
+        });
+        sb.setAttribute('aria-expanded', 'false');
+      }
       if (h.res.blocks.length && h.res.blocks[0].latex && !h.res.table) btn('Usar resultado', () => useResult(h));
       if (plotSpec) btn(h.res.plot && h.res.plot.optional ? 'Ver gráfica' : 'Gráfica', showPlot);
       el.appendChild(actions);
       if (plotSpec && !h.res.plot.optional) showPlot();
     }
     return el;
+  }
+
+  // Texto con fórmulas en línea: "Sustitución: $u = x^2$" → texto + fórmula
+  function richText(el, text) {
+    String(text).split(/(\$[^$]+\$)/).forEach(part => {
+      if (/^\$[^$]+\$$/.test(part)) el.appendChild(texNode(part.slice(1, -1), false));
+      else if (part) el.appendChild(document.createTextNode(part));
+    });
+  }
+
+  function renderSteps(box, h) {
+    box.innerHTML = '';
+    if (!h.steps || !h.steps.length) {
+      box.innerHTML = '<p class="cc-note">Para este caso no tengo la explicación paso a paso, pero el resultado de arriba sí es correcto.</p>';
+      return;
+    }
+    const ol = document.createElement('ol');
+    let n = 0;
+    for (const st of h.steps) {
+      if (st.heading) { const hd = document.createElement('li'); hd.className = 'st-head'; hd.textContent = st.title; ol.appendChild(hd); continue; }
+      const li = document.createElement('li');
+      li.value = ++n;
+      const t = document.createElement('div');
+      t.className = 'st-title';
+      richText(t, st.title);
+      li.appendChild(t);
+      if (st.rule) { const r = document.createElement('div'); r.className = 'st-rule'; r.appendChild(texNode(st.rule, false)); li.appendChild(r); }
+      if (st.latex) { const m = document.createElement('div'); m.className = 'st-math'; m.appendChild(texNode(st.latex, true)); li.appendChild(m); }
+      ol.appendChild(li);
+    }
+    box.appendChild(ol);
+    const act = document.createElement('div');
+    act.className = 'cc-actions';
+    const b = document.createElement('button');
+    b.className = 'main';
+    b.textContent = 'Insertar con los pasos en la nota';
+    b.onclick = () => insertSteps(h);
+    act.appendChild(b);
+    box.appendChild(act);
+  }
+
+  // Título con $…$ → LaTeX: el texto va en \text{}, las fórmulas quedan como están.
+  function titleLatex(t) {
+    return String(t).split(/(\$[^$]+\$)/).filter(Boolean).map(p => (/^\$[^$]+\$$/.test(p) ? p.slice(1, -1) : `\\text{${texEsc(p)}}`)).join('');
+  }
+
+  function insertSteps(h) {
+    const ed = editorOrToast();
+    if (!ed) return;
+    const lines = [h.input];
+    let n = 0;
+    for (const st of h.steps) {
+      if (st.heading) { lines.push(`\\textbf{${texEsc(st.title)}}`); continue; }
+      lines.push(`\\text{${++n}. }${titleLatex(st.title)}`);
+      if (st.latex) lines.push(`\\quad ${st.latex}`);
+    }
+    const latex = '\\begin{array}{l}' + lines.join('\\\\[5pt]') + '\\end{array}';
+    try {
+      const pic = formulaPicture(latex);
+      ed.insertPicture({ ...pic, math: { latex } });
+      toast('Listo: el paso a paso quedó en la nota.');
+      if (window.innerWidth < 900) close();
+    } catch { toast('No se pudo insertar el paso a paso.'); }
   }
 
   function opSuffix(h) {
@@ -481,6 +563,10 @@ export function createCalc({ toast, getEditor, isDark, onToggle }) {
     mf.focus();
   }
 
+  function hideKeyboard() {
+    try { if (mf) mf.blur(); window.mathVirtualKeyboard.hide(); } catch {}
+  }
+
   // ---------- Calcular ----------
   async function run() {
     if (busy || !mf) return;
@@ -508,6 +594,8 @@ export function createCalc({ toast, getEditor, isDark, onToggle }) {
     c.scrollIntoView({ block: 'end', behavior: 'smooth' });
     busy = false;
     go.disabled = false;
+    // En el celular el teclado tapa medio resultado: se esconde (tocar la casilla lo vuelve a abrir).
+    if (window.innerWidth < 900) hideKeyboard();
     // La operación elegida (Derivar, Integrar…) vale para un cálculo; luego vuelve a "=".
     if (op) { op = null; opts = {}; renderOps(); renderOpts(); }
   }
