@@ -862,3 +862,7 @@ body.calc-docked #editor { right: min(460px, 100%); }
 .st-rule { color: var(--muted); font-size: 14px; margin-top: 2px; overflow-x: auto; }
 .st-math { overflow-x: auto; overflow-y: hidden; font-size: 16px; margin-top: 2px; background: var(--raised); border-radius: 10px; padding: 2px 8px; }
 .st-math mjx-container { margin: 4px 0 !important; text-align: left !important; }
+/* Hoja bloqueada */
+.zoom-ctl button:disabled { opacity: .35; pointer-events: none; }
+#z-lock[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); border-radius: 12px; }
+.minimap.locked { opacity: .55; }

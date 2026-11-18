@@ -29,6 +29,7 @@ function loadSettings() {
     showMap: window.innerWidth > 700,
     studyMode: 'cover',   // herramienta Estudio: 'cover' (tapar) o 'card' (tarjeta)
     coverHl: false,       // en modo Estudiar, tapar también lo resaltado
+    viewLocked: false,    // hoja bloqueada: no se mueve ni cambia el zoom con gestos
   };
   try { return { ...def, ...JSON.parse(localStorage.getItem('np-settings') || '{}') }; }
   catch { return def; }
@@ -327,7 +328,7 @@ export function createEditor({ onSave, onClose, toast, askMark, onCapture, isDar
   }
 
   // ---------- Zoom y mapa ----------
-  const zPct = $('#z-pct'), zAll = $('#z-all'), zMap = $('#z-map');
+  const zPct = $('#z-pct'), zAll = $('#z-all'), zMap = $('#z-map'), zLock = $('#z-lock');
   const mm = $('#minimap'), mmCv = $('#mm-cv'), mmLabel = $('#mm-label');
   const mmCtx = mmCv.getContext('2d');
   const mmBase = document.createElement('canvas');
@@ -339,6 +340,24 @@ export function createEditor({ onSave, onClose, toast, askMark, onCapture, isDar
     zAll.querySelector('.lbl').textContent = on ? 'Volver' : 'Ver todo';
     zAll.setAttribute('aria-pressed', String(on));
     zMap.setAttribute('aria-pressed', String(!!S.showMap));
+    // Candado: con la hoja bloqueada, los botones que mueven la vista quedan apagados.
+    const locked = !!S.viewLocked;
+    zLock.setAttribute('aria-pressed', String(locked));
+    zLock.querySelector('use').setAttribute('href', locked ? '#i-lock' : '#i-unlock');
+    zLock.setAttribute('aria-label', locked ? 'Desbloquear la hoja para poder moverla' : 'Bloquear la hoja para que no se mueva');
+    zLock.title = locked ? 'Hoja bloqueada: toca para desbloquear' : 'Bloquear la hoja: no se mueve ni cambia el zoom';
+    for (const b of [$('#z-in'), $('#z-out'), zPct]) b.disabled = locked;
+    zAll.disabled = locked && layout !== 'pages';
+    mm.classList.toggle('locked', locked);
+    stage.classList.toggle('view-locked', locked);
+  }
+
+  // Aviso (sin repetirlo a cada rato) cuando se intenta mover la hoja bloqueada.
+  let lockHintAt = -Infinity;
+  function lockHint() {
+    if (performance.now() - lockHintAt < 5000) return;
+    lockHintAt = performance.now();
+    toast('La hoja está bloqueada. Toca el candado de abajo para moverla.');
   }
 
   function currentPage() {
@@ -404,6 +423,7 @@ export function createEditor({ onSave, onClose, toast, askMark, onCapture, isDar
   let mmDrag = false;
   function mmMove(e) {
     if (!mmMap) return;
+    if (S.viewLocked) { lockHint(); return; }
     const r = mmCv.getBoundingClientRect();
     const x = (e.clientX - r.left) / mmMap.k + mmMap.x0, y = (e.clientY - r.top) / mmMap.k + mmMap.y0;
     prevView = null;
@@ -422,6 +442,12 @@ export function createEditor({ onSave, onClose, toast, askMark, onCapture, isDar
   zPct.onclick = resetZoom;
   zAll.onclick = showAll;
   zMap.onclick = () => { S.showMap = !S.showMap; saveSettings(S); mmStale = true; redraw(); };
+  zLock.onclick = () => {
+    S.viewLocked = !S.viewLocked;
+    saveSettings(S);
+    updateZoomUI();
+    toast(S.viewLocked ? 'Hoja bloqueada: no se moverá mientras escribes. Toca el candado para desbloquearla.' : 'Hoja desbloqueada: ya puedes moverla y hacer zoom.');
+  };
 
   function paintLive() {
     setInkDark(darkPaper());
@@ -955,6 +981,12 @@ export function createEditor({ onSave, onClose, toast, askMark, onCapture, isDar
     const dx = g.cx - action.cx, dy = g.cy - action.cy;
     action.travel += Math.abs(dx) + Math.abs(dy);
     if (action.travel > 18) prevView = null;
+    if (S.viewLocked) {
+      // Bloqueada: no se mueve (el toque rápido con dos dedos sigue deshaciendo).
+      if (action.travel > 40 || (g.n === 2 && action.dist > 0 && Math.abs(g.dist / action.dist - 1) > 0.15)) lockHint();
+      Object.assign(action, { cx: g.cx, cy: g.cy });
+      return;
+    }
     view.ox += dx; view.oy += dy;
     if (g.n === 2 && action.dist > 0) zoomAt(g.cx - r.left, g.cy - r.top, g.dist / action.dist);
     clampView();
@@ -980,6 +1012,7 @@ export function createEditor({ onSave, onClose, toast, askMark, onCapture, isDar
   cvLive.addEventListener('contextmenu', e => e.preventDefault());
   stage.addEventListener('wheel', e => {
     e.preventDefault();
+    if (S.viewLocked) { lockHint(); return; }
     prevView = null;
     const r = stage.getBoundingClientRect();
     if (e.ctrlKey) zoomAt(e.clientX - r.left, e.clientY - r.top, Math.exp(-e.deltaY * 0.01));
