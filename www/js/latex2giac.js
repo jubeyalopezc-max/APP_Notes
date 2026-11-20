@@ -536,6 +536,7 @@ function scan(n, info) {
   if (n.k === 'var' && !n.raw && !['pi', 'e', 'i', 'inf'].includes(n.v)) info.vars.add(n.v);
   if (n.k === 'rel') info.rel = info.rel || n.op;
   if (n.k === 'prime') { info.ode = true; info.func = n.v; }
+  if (n.k === 'call' && ['ln', 'log10', 'logb'].includes(n.name)) info.log = true;
   if (n.k === 'mat') info.matrix = isVec(n) ? (info.matrix || 'vector') : 'matrix';
   if (['int', 'lim', 'diff', 'sum', 'prod'].includes(n.k) && !info.op) { info.op = n.k; if (n.k === 'int') info.definite = !!(n.lo && n.hi); }
   // Variables ligadas (dx, k de la suma) no cuentan como libres.

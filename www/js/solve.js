@@ -1,6 +1,8 @@
 // Qué hacer con cada expresión: arma las órdenes para el motor y presenta el resultado.
 import { run, isError, splitApprox } from './cas.js';
 import { latexToGiac, MathSyntaxError } from './latex2giac.js';
+import { parse as astParse, simp as astSimp, tex as astTex, toGiac as astGiac } from './steps/ast.js';
+import { expandLogSteps, condenseLogSteps, changeBaseSteps } from './steps/logs.js';
 
 export { MathSyntaxError };
 
@@ -127,6 +129,26 @@ export async function compute(latex, action = 'auto', o = {}) {
     }
     case 'factor': await plain(`factor(${expr})`, 'Factorizado', 'Factorizar'); break;
     case 'expand': await plain(`expand(${expr})`, 'Expandido', 'Expandir'); break;
+    case 'logexp': case 'logcol': case 'logbase': {
+      const n = astSimp(astParse(expr));
+      if (action === 'logbase') {
+        const st = await changeBaseSteps(n);
+        res.title = 'Cambio de base';
+        if (!st) { res.notes.push('Ya está en logaritmo natural (ln): no hace falta cambiar la base.'); add('=', await evaluate(expr)); break; }
+        res.steps = st;
+        for (const s of st) res.blocks.push({ label: '', latex: s.latex });
+        break;
+      }
+      const r = action === 'logexp' ? expandLogSteps(n) : condenseLogSteps(n);
+      res.title = action === 'logexp' ? 'Logaritmos expandidos' : 'Logaritmos juntados';
+      res.steps = r.steps;
+      let ap = null;
+      try { const a = splitApprox((await run([`evalf(${astGiac(r.result)})`]))[0]).exact; if (isNumeric(a)) ap = fmtNum(a); } catch {}
+      res.blocks.push({ label: '=', latex: astTex(r.result), approx: ap, str: astGiac(r.result) });
+      if (!r.steps.length) res.notes.push(action === 'logexp' ? 'No hay productos, cocientes ni potencias dentro de los logaritmos para separar.' : 'No hay varios logaritmos de la misma base para juntar.');
+      else if (action === 'logexp') res.notes.push('Vale cuando los argumentos de los logaritmos son positivos.');
+      break;
+    }
     case 'decimal': {
       const r = await evaluate(`evalf(${expr},${o.digits || 12})`, { approx: false });
       res.title = 'Valor decimal'; add('≈', r); break;

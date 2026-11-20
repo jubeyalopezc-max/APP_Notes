@@ -5,6 +5,7 @@ import { parse, simp, tex, toGiac, S, add, neg, has } from './ast.js';
 import { derivSteps, StepLimit } from './deriv.js';
 import { integSteps } from './integ.js';
 import { limitSteps } from './limit.js';
+import { logEquationSteps } from './logs.js';
 import { equationSteps, systemSteps, detSteps, inverseSteps, gaussJordan, readMatrix, matTex } from './algebra.js';
 
 async function G(cmd) {
@@ -26,7 +27,7 @@ async function nicest(n) {
 /** ¿Tiene sentido ofrecer el paso a paso para este cálculo? (rápido, sin el motor) */
 export function hasSteps(h) {
   const a = h.action;
-  if (['diff', 'int', 'lim', 'det', 'inv', 'rref', 'solve'].includes(a)) return true;
+  if (['diff', 'int', 'lim', 'det', 'inv', 'rref', 'solve', 'logexp', 'logcol', 'logbase'].includes(a)) return true;
   if (a !== 'auto') return false;
   try {
     const { info } = latexToGiac(h.input);
@@ -44,6 +45,7 @@ function call(giac, name) {
 }
 
 export async function stepsFor(h) {
+  if (h.res && h.res.steps) return h.res.steps;
   const { giac, info } = latexToGiac(h.input);
   const o = h.opts || {};
   let a = h.action;
@@ -112,6 +114,8 @@ export async function stepsFor(h) {
     if (info.rel !== '=' && info.rel) return null;
     const v = o.var || (info.vars.includes('x') ? 'x' : info.vars[0]);
     const [l, r] = giac.includes('=') ? giac.split('=') : [giac, '0'];
+    // Exponenciales y logarítmicas primero
+    try { const ls = await logEquationSteps(P(l), P(r), v); if (ls && ls.length) return ls; } catch (e) { console.warn(e); }
     const res = await equationSteps(P(l), P(r), v);
     return res && res.steps;
   }

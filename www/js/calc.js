@@ -94,6 +94,9 @@ const OPS = [
   ['tangent', 'Recta tangente', i => !i.matrix && !i.rel && !i.ode],
   ['taylor', 'Taylor', i => !i.matrix && !i.rel && !i.ode],
   ['grad', 'Gradiente', i => !i.matrix && !i.rel && i.vars.length >= 2],
+  ['logexp', 'Expandir logaritmos', i => i.log && !i.rel],
+  ['logcol', 'Juntar logaritmos', i => i.log && !i.rel],
+  ['logbase', 'Cambio de base', i => i.log && !i.rel],
   ['det', 'Determinante', i => i.matrix === 'matrix'],
   ['inv', 'Inversa', i => i.matrix === 'matrix'],
   ['tran', 'Transpuesta', i => i.matrix === 'matrix'],
@@ -109,6 +112,8 @@ const NEEDS_VAR = ['diff', 'int', 'lim', 'solve', 'extrema', 'tangent', 'taylor'
 const EXAMPLES = [
   ['x^2-5x+6=0', 'Ecuaciones'],
   ['\\int x^2\\sin x\\,dx', 'Integrales'],
+  ['\\log_{2}\\left(x\\right)+\\log_{2}\\left(x-2\\right)=3', 'Logaritmos'],
+  ['2^{x+1}=32', 'Ecuaciones exponenciales'],
   ['\\lim_{x\\to0}\\frac{\\sin x}{x}', 'Límites'],
   ['\\frac{d}{dx}e^{x}\\cos x', 'Derivadas'],
   ["y''+y=0", 'Ecuaciones diferenciales'],
@@ -127,8 +132,8 @@ function keyboardLayouts() {
       rows: [
         ['[7]', '[8]', '[9]', '[/]', ins('\\frac{#@}{#0}', '<span style="font-size:.8em">a/b</span>'), k('x'), k('y'), ins('#@^{2}', 'x²'), ins('#@^{#?}', 'xⁿ')],
         ['[4]', '[5]', '[6]', '[*]', ins('\\left(#0\\right)', '( )'), k('\\pi'), k('e'), ins('\\sqrt{#0}', '√'), ins('\\sqrt[#?]{#0}', 'ⁿ√')],
-        ['[1]', '[2]', '[3]', '[-]', k('='), k('<'), k('>'), k('\\le'), k('\\ge')],
-        ['[0]', '[.]', ins(',', ','), '[+]', ins('\\left|#0\\right|', '|x|'), k('!'), ins('^{\\circ}', '°'), '[left]', '[right]', '[backspace]'],
+        ['[1]', '[2]', '[3]', '[-]', k('='), k('<'), k('>'), ins('\\ln\\left(#0\\right)', 'ln'), ins('\\log\\left(#0\\right)', 'log')],
+        ['[0]', '[.]', ins(',', ','), '[+]', ins('\\left|#0\\right|', '|x|'), ins('\\log_{#?}\\left(#0\\right)', 'logₐ'), ins('e^{#0}', 'eˣ'), '[left]', '[right]', '[backspace]'],
       ],
     },
     {
@@ -136,8 +141,17 @@ function keyboardLayouts() {
       rows: [
         [ins('\\sin\\left(#0\\right)', 'sen'), ins('\\cos\\left(#0\\right)', 'cos'), ins('\\tan\\left(#0\\right)', 'tan'), ins('\\sec\\left(#0\\right)', 'sec'), ins('\\csc\\left(#0\\right)', 'csc'), ins('\\cot\\left(#0\\right)', 'cot'), ins('e^{#0}', 'eˣ')],
         [ins('\\arcsin\\left(#0\\right)', 'sen⁻¹'), ins('\\arccos\\left(#0\\right)', 'cos⁻¹'), ins('\\arctan\\left(#0\\right)', 'tan⁻¹'), ins('\\sinh\\left(#0\\right)', 'senh'), ins('\\cosh\\left(#0\\right)', 'cosh'), ins('\\tanh\\left(#0\\right)', 'tanh'), ins('\\ln\\left(#0\\right)', 'ln')],
-        [ins('\\log\\left(#0\\right)', 'log'), ins('\\log_{#?}\\left(#0\\right)', 'logₐ'), ins('\\binom{#?}{#?}', 'nCr'), k('\\theta'), k('\\alpha'), k('\\beta'), ins('#@_{#?}', 'x₁')],
+        [k('\\le'), k('\\ge'), ins('\\binom{#?}{#?}', 'nCr'), k('!'), ins('^{\\circ}', '°'), k('\\theta'), k('\\alpha'), k('\\beta'), ins('#@_{#?}', 'x₁')],
         [k('x'), k('y'), k('z'), k('t'), k('n'), k('k'), '[left]', '[right]', '[backspace]'],
+      ],
+    },
+    {
+      label: 'ln log', tooltip: 'Logaritmos y exponenciales',
+      rows: [
+        [ins('\\ln\\left(#0\\right)', 'ln'), ins('\\log\\left(#0\\right)', 'log'), ins('\\log_{#?}\\left(#0\\right)', 'logₐ'), ins('\\log_{2}\\left(#0\\right)', 'log₂'), ins('e^{#0}', 'eˣ'), ins('10^{#0}', '10ˣ'), ins('#@^{#?}', 'aˣ')],
+        [k('e'), k('x'), k('y'), ins('\\sqrt{#0}', '√'), ins('\\frac{#@}{#0}', 'a/b'), ins('\\left(#0\\right)', '( )'), k('=')],
+        ['[7]', '[8]', '[9]', '[4]', '[5]', '[6]', '[+]', '[-]'],
+        ['[1]', '[2]', '[3]', '[0]', '[.]', '[*]', '[/]', '[left]', '[right]', '[backspace]'],
       ],
     },
     {
@@ -210,7 +224,9 @@ export function createCalc({ toast, getEditor, isDark, onToggle }) {
   function renderOps() {
     const i = info || { vars: [], rel: null, matrix: null, op: null, ode: false };
     opsBar.innerHTML = '';
-    for (const [id, label, when] of OPS) {
+    // Con logaritmos en la expresión, sus botones van primero.
+    const order = i.log ? [...OPS.filter(o => o[0].startsWith('log')), ...OPS.filter(o => !o[0].startsWith('log'))] : OPS;
+    for (const [id, label, when] of order) {
       if (!when(i)) continue;
       const b = document.createElement('button');
       b.textContent = label;
